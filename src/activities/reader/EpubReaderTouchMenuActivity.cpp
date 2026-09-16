@@ -1706,10 +1706,6 @@ void EpubReaderTouchMenuActivity::renderPreviewText(const ReaderSettingsDraft& p
   (void)orientedRight;
   (void)orientedBottom;
   (void)orientedLeft;
-  const int clockReservation = ReaderUtils::getTopClockStatusBarReservedHeight(renderer);
-  const int previewYOffset =
-      orientedTop + std::max(static_cast<int>(previewSettings.screenMarginTop),
-                             clockReservation > 0 ? clockReservation + ReaderUtils::TOP_CLOCK_TEXT_PADDING : 0);
   const int previewYOffset = orientedTop + previewSettings.screenMarginTop;
   const int previewWidth =
       std::max(1, renderer.getScreenWidth() - static_cast<int>(previewSettings.screenMarginHorizontal) * 2);

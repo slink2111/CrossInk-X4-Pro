@@ -197,7 +197,6 @@ void StatusBarSettingsActivity::onEnter() {
   Activity::onEnter();
 
   selectedIndex = 0;
-  visibleItemCount = stablePageNumbersAvailable ? ITEM_COUNT : ITEM_COUNT - 1;
   visibleItemCount = 0;
   for (int i = 0; i < ITEM_COUNT; ++i) {
     if (i == ITEM_STABLE_PAGE_NUMBERS && !stablePageNumbersAvailable) continue;
@@ -305,7 +304,6 @@ void StatusBarSettingsActivity::loop() {
 }
 
 int StatusBarSettingsActivity::itemForVisibleIndex(const int visibleIndex) const {
-  return !stablePageNumbersAvailable && visibleIndex >= ITEM_STABLE_PAGE_NUMBERS ? visibleIndex + 1 : visibleIndex;
   if (visibleIndex >= 0 && visibleIndex < visibleItemCount) {
     return visibleItems[visibleIndex];
   }

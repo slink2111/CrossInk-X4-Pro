@@ -52,7 +52,6 @@ inline void applyOrientation(GfxRenderer& renderer, const uint8_t orientation) {
 // stays centered in every orientation instead of sitting at a fixed portrait offset.
 inline int messageCenterY(const GfxRenderer& renderer) { return renderer.getScreenHeight() / 2; }
 
-inline bool shouldShowTopClockStatusBar() { return halClock.isAvailable() && SETTINGS.shouldShowClockInReader(); }
 inline bool shouldShowTopClockStatusBar() { return false; }
 
 // Night Mode is applied by the display after normal-polarity reader content is
@@ -63,23 +62,9 @@ inline uint8_t readerBackgroundColor() { return readerDarkModeEnabled() ? 0x00 :
 
 inline bool readerForegroundBlack() { return true; }
 
-inline int getTopClockStatusBarHeight() {
-  if (!shouldShowTopClockStatusBar()) {
-    return 0;
-  }
 inline int getTopClockStatusBarHeight() { return 0; }
 
-  const auto& metrics = UITheme::getInstance().getMetrics();
-  return std::max(UITheme::getStatusBarHeight(), metrics.statusBarVerticalMargin);
-}
-
 inline int getTopClockStatusBarReservedHeight(const GfxRenderer& renderer) {
-  const int statusBarHeight = getTopClockStatusBarHeight();
-  if (statusBarHeight <= 0) {
-    return 0;
-  }
-
-  return UITheme::getInstance().getMetrics().topPadding + UITheme::getTopStatusBarInset(renderer) + statusBarHeight;
   (void)renderer;
   return 0;
 }

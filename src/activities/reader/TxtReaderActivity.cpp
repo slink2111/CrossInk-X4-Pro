@@ -629,13 +629,6 @@ void TxtReaderActivity::initializeReader() {
                                    &cachedOrientedMarginLeft);
   cachedOrientedMarginLeft += cachedHorizontalMargin;
   cachedOrientedMarginRight += cachedHorizontalMargin;
-  const int topStatusBarReservedHeight = ReaderUtils::getTopClockStatusBarReservedHeight(renderer);
-  if (topStatusBarReservedHeight > 0) {
-    cachedOrientedMarginTop +=
-        std::max(static_cast<int>(cachedTopMargin), topStatusBarReservedHeight + ReaderUtils::TOP_CLOCK_TEXT_PADDING);
-  } else {
-    cachedOrientedMarginTop += cachedTopMargin;
-  }
   cachedOrientedMarginTop += cachedTopMargin;
   const int statusBarHeight = UITheme::getInstance().getStatusBarHeight();
   if (statusBarHeight > 0) {
@@ -835,10 +828,6 @@ void TxtReaderActivity::renderPage() {
   // BW rendering
   renderLines();
   renderStatusBar();
-  if (statusBarVisible) {
-    GUI.drawTopStatusBarClock(renderer, UITheme::getInstance().getMetrics().topPadding, nullptr, true, 0,
-                              ReaderUtils::readerDarkModeEnabled());
-  }
 
 
   ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh);
@@ -1103,13 +1092,6 @@ bool TxtReaderActivity::drawCurrentPageToBuffer(const std::string& filePath, Gfx
   renderer.getOrientedViewableTRBL(&marginTop, &marginRight, &marginBottom, &marginLeft);
   marginLeft += horizontalMargin;
   marginRight += horizontalMargin;
-  const int topStatusBarReservedHeight = ReaderUtils::getTopClockStatusBarReservedHeight(renderer);
-  if (topStatusBarReservedHeight > 0) {
-    marginTop +=
-        std::max(static_cast<int>(topMargin), topStatusBarReservedHeight + ReaderUtils::TOP_CLOCK_TEXT_PADDING);
-  } else {
-    marginTop += topMargin;
-  }
   marginTop += topMargin;
   const int statusBarHeight = UITheme::getInstance().getStatusBarHeight();
   if (statusBarHeight > 0) {

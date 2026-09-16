@@ -910,13 +910,6 @@ ReaderViewportLayout computeReaderViewportLayout(GfxRenderer& renderer, const bo
   layout.marginLeft += effectiveReaderLeftMargin();
   layout.marginRight += SETTINGS.screenMarginHorizontal;
 
-  const int topStatusBarReservedHeight = ReaderUtils::getTopClockStatusBarReservedHeight(renderer);
-  if (topStatusBarReservedHeight > 0) {
-    layout.marginTop += std::max(static_cast<int>(SETTINGS.screenMarginTop),
-                                 topStatusBarReservedHeight + ReaderUtils::TOP_CLOCK_TEXT_PADDING);
-  } else {
-    layout.marginTop += SETTINGS.screenMarginTop;
-  }
   layout.marginTop += SETTINGS.screenMarginTop;
 
 #if CROSSINK_APP_CAP_TOUCH
@@ -7230,8 +7223,6 @@ void EpubReaderActivity::renderStatusBar() const {
   GUI.drawStatusBar(renderer, bookProgress, currentPage, pageCount, title.c_str(), 0, textYOffset, bookmarked, timeLeft,
                     ReaderUtils::readerDarkModeEnabled(), chapterProgress * 100.0f, static_cast<int>(referencePage),
                     static_cast<int>(referencePageCount), !activeFootnotePreview, pageCountEstimated);
-  GUI.drawTopStatusBarClock(renderer, UITheme::getInstance().getMetrics().topPadding, nullptr, true, 0,
-                            ReaderUtils::readerDarkModeEnabled());
 
 }
 
