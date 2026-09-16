@@ -10,6 +10,7 @@
 - Selectable keyboard layouts, switchable from the keyboard's language key.
 - Clippings from dictionary lookups on touch devices, plus selection of text inside EPUB tables.
 - Clock display option in the bottom reader status bar, configurable via the Customize Status Bar settings menu.
+- Greek and polytonic Greek UTF-8 character support in the built-in Inter UI fonts for book titles, file listings, and menus.
 
 ### Changed
 

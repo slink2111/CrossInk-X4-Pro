@@ -207,6 +207,11 @@ ARABIC_INTERVALS=(
   --additional-intervals 0xFE80,0xFEFC  # Presentation Forms-B: core Arabic + Lam-Alef
 )
 
+GREEK_INTERVALS=(
+  --additional-intervals 0x0370,0x03FF  # Greek and Coptic
+  --additional-intervals 0x1F00,0x1FFF  # Greek Extended (polytonic)
+)
+
 for size in ${UI_FONT_SIZES[@]}; do
   for style in ${UI_FONT_STYLES[@]}; do
     font_name="inter_${size}_$(echo $style | tr '[:upper:]' '[:lower:]')"
@@ -215,7 +220,7 @@ for size in ${UI_FONT_SIZES[@]}; do
     arabic_path="../builtinFonts/source/NotoSansArabic/NotoSansArabic-${style}.ttf"
     output_path="../builtinFonts/${font_name}.h"
     python fontconvert.py $font_name $size $font_path $hebrew_path $arabic_path \
-      --additional-intervals 0x05D0,0x05EA "${ARABIC_INTERVALS[@]}" > $output_path
+      --additional-intervals 0x05D0,0x05EA "${GREEK_INTERVALS[@]}" "${ARABIC_INTERVALS[@]}" > $output_path
     echo "Generated $output_path"
   done
 done
@@ -226,7 +231,7 @@ python fontconvert.py inter_8_regular 8 \
   ../builtinFonts/source/Inter/Inter-Regular.ttf \
   ../builtinFonts/source/IBMPlexSansHebrew/IBMPlexSansHebrew-Regular.ttf \
   ../builtinFonts/source/NotoSansArabic/NotoSansArabic-Regular.ttf \
-  --additional-intervals 0x05D0,0x05EA "${ARABIC_INTERVALS[@]}" > ../builtinFonts/inter_8_regular.h
+  --additional-intervals 0x05D0,0x05EA "${GREEK_INTERVALS[@]}" "${ARABIC_INTERVALS[@]}" > ../builtinFonts/inter_8_regular.h
 
 echo ""
 echo "Running compression verification..."
