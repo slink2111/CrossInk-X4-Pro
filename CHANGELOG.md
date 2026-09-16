@@ -30,6 +30,7 @@
 
 ### Fixed
 
+- Text anti-aliasing in reader mode uses 1-bit spatial edge dithering to render smooth font curves directly in a single, instantaneous display refresh, completely eliminating two-stage flashing and rendering lag.
 - Clipping highlights stay aligned after font changes, retain multi-paragraph text, and remain readable in Dark Mode. Selection stays on its final page, and browsing saved clippings responds reliably.
 - Dictionary lookup respects landscape controls and selected fonts, handles repeated lookups more reliably, and returns to the reader cleanly when dismissed.
 - EPUB tables retain column widths and wrap long labels; mixed-direction text, Arabic/Persian shaping, ruby annotations, and footnote styling render correctly.

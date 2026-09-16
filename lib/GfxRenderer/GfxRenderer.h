@@ -49,6 +49,7 @@ class GfxRenderer {
   mutable bool absoluteGrayPlanes = false;
   Orientation orientation;
   bool fadingFix;
+  bool textDithering = false;
   uint8_t* frameBuffer = nullptr;
   uint16_t panelWidth = HalDisplay::DISPLAY_WIDTH;
   uint16_t panelHeight = HalDisplay::DISPLAY_HEIGHT;
@@ -227,6 +228,8 @@ class GfxRenderer {
   void invertRect(int x, int y, int width, int height) const;
   void clearScreen(uint8_t color = 0xFF) const;
   void getOrientedViewableTRBL(int* outTop, int* outRight, int* outBottom, int* outLeft) const;
+  void setTextDithering(const bool enable) { textDithering = enable; }
+  bool isTextDithering() const { return textDithering; }
 
   void beginStripTarget(uint8_t* scratch, int stripY0, int stripRows) const;
   void endStripTarget() const;
@@ -332,8 +335,9 @@ class GfxRenderer {
   // `fallback`).
   void displayGrayscaleBase(HalDisplay::RefreshMode fallback = HalDisplay::HALF_REFRESH,
                             bool turnOffScreen = false) const;
-  void copyGrayscaleLsbBuffers() const;
-  void copyGrayscaleMsbBuffers() const;
+  void copyGrayscaleBuffers(const uint8_t* lsbBuffer, const uint8_t* msbBuffer) const;
+  void copyGrayscaleLsbBuffers(const uint8_t* lsbBuffer = nullptr) const;
+  void copyGrayscaleMsbBuffers(const uint8_t* msbBuffer = nullptr) const;
   void displayGrayBuffer(bool turnOffScreen = false) const;
   void writeGrayscalePlaneStrip(bool lsbPlane, const uint8_t* scratch, int yStart, int numRows) const;
   bool shouldSkipImageBlanking() const;

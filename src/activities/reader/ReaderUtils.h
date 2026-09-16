@@ -5,6 +5,8 @@
 #include <HalClock.h>
 #include <HalTiltSensor.h>
 #include <Logging.h>
+#include <Memory.h>
+#include <MemoryBudget.h>
 
 #include <algorithm>
 
@@ -61,6 +63,19 @@ inline bool readerDarkModeEnabled() { return false; }
 inline uint8_t readerBackgroundColor() { return readerDarkModeEnabled() ? 0x00 : 0xFF; }
 
 inline bool readerForegroundBlack() { return true; }
+
+class TextDitheringScope {
+ public:
+  explicit TextDitheringScope(GfxRenderer& renderer, const bool enable) : renderer_(renderer) {
+    renderer_.setTextDithering(enable);
+  }
+  ~TextDitheringScope() {
+    renderer_.setTextDithering(false);
+  }
+
+ private:
+  GfxRenderer& renderer_;
+};
 
 inline int getTopClockStatusBarHeight() { return 0; }
 
@@ -269,6 +284,90 @@ void renderAntiAliased(GfxRenderer& renderer, RenderFn&& renderFn) {
   renderer.setRenderMode(GfxRenderer::BW);
 
   renderer.restoreBwBuffer();
+}
+
+// Prerendered grayscale anti-aliasing pass.
+// Renders LSB and MSB planes into dedicated buffers (in PSRAM or heap) BEFORE
+// updating the display. Once both planes are ready in memory, updates the base
+// frame and immediately writes the grayscale planes to the display controller,
+// eliminating visible two-pass flashes or rendering lag on the screen.
+template <typename RenderFn>
+void renderAntiAliasedPrerendered(GfxRenderer& renderer, int& pagesUntilFullRefresh, RenderFn&& renderFn) {
+  const int displayHeight = renderer.getDisplayHeight();
+  const int displayWidthBytes = renderer.getDisplayWidthBytes();
+  const size_t planeBytes = static_cast<size_t>(displayWidthBytes) * displayHeight;
+  const bool usePsramPlanes = psramHeapAvailable();
+
+  const auto planeBufferFits = [planeBytes, usePsramPlanes] {
+    if (usePsramPlanes) {
+      constexpr size_t PSRAM_PLANE_RESERVE = 128 * 1024;
+      const auto psram = MemoryBudget::psramSnapshot();
+      return psram.freeHeap >= planeBytes * 2 + PSRAM_PLANE_RESERVE && psram.maxAllocHeap >= planeBytes;
+    }
+    constexpr size_t PLANE_BUFFER_FREE_HEAP_RESERVE = 60000;
+    constexpr size_t PLANE_BUFFER_MAX_ALLOC_RESERVE = 16 * 1024;
+    return ESP.getFreeHeap() >= planeBytes * 2 + PLANE_BUFFER_FREE_HEAP_RESERVE &&
+           ESP.getMaxAllocHeap() >= planeBytes;
+  };
+
+  const auto allocatePlane = [planeBytes, usePsramPlanes] {
+    return usePsramPlanes ? makePsramByteBufferNoThrow(planeBytes) : makeHeapByteBufferNoThrow(planeBytes);
+  };
+
+  if (planeBufferFits()) {
+    auto lsbPlaneBuf = allocatePlane();
+    auto msbPlaneBuf = allocatePlane();
+    if (lsbPlaneBuf && msbPlaneBuf) {
+      // 1. Prerender LSB plane into memory buffer
+      renderer.setRenderMode(GfxRenderer::GRAYSCALE_LSB);
+      renderer.beginStripTarget(lsbPlaneBuf.get(), 0, displayHeight);
+      renderer.clearScreen(0x00);
+      renderFn();
+      renderer.endStripTarget();
+
+      // 2. Prerender MSB plane into memory buffer
+      renderer.setRenderMode(GfxRenderer::GRAYSCALE_MSB);
+      renderer.beginStripTarget(msbPlaneBuf.get(), 0, displayHeight);
+      renderer.clearScreen(0x00);
+      renderFn();
+      renderer.endStripTarget();
+      renderer.setRenderMode(GfxRenderer::BW);
+
+      // 3. Update base frame on display
+      if (pagesUntilFullRefresh <= 1) {
+        renderer.displayBuffer(pagesUntilFullRefresh < 0 ? manualScreenRefreshMode() : HalDisplay::HALF_REFRESH);
+        renderer.preconditionGrayscale();
+        pagesUntilFullRefresh = SETTINGS.getRefreshFrequency();
+      } else {
+        renderer.displayGrayscaleBase(HalDisplay::FAST_REFRESH);
+        pagesUntilFullRefresh--;
+      }
+
+      // 4. Immediately write grayscale planes to display controller
+      if (renderer.supportsStripGrayscale()) {
+        renderer.writeGrayscalePlaneStrip(true, lsbPlaneBuf.get(), 0, displayHeight);
+        renderer.writeGrayscalePlaneStrip(false, msbPlaneBuf.get(), 0, displayHeight);
+      } else {
+        renderer.copyGrayscaleBuffers(lsbPlaneBuf.get(), msbPlaneBuf.get());
+      }
+
+      // 5. Activate grayscale overlay
+      renderer.displayGrayBuffer();
+      renderer.cleanupGrayscaleWithFrameBuffer();
+      return;
+    }
+  }
+
+  // Fallback for low-memory targets without PSRAM:
+  if (pagesUntilFullRefresh <= 1) {
+    renderer.displayBuffer(pagesUntilFullRefresh < 0 ? manualScreenRefreshMode() : HalDisplay::HALF_REFRESH);
+    renderer.preconditionGrayscale();
+    pagesUntilFullRefresh = SETTINGS.getRefreshFrequency();
+  } else {
+    renderer.displayGrayscaleBase(HalDisplay::FAST_REFRESH);
+    pagesUntilFullRefresh--;
+  }
+  renderAntiAliased(renderer, std::forward<RenderFn>(renderFn));
 }
 
 }  // namespace ReaderUtils

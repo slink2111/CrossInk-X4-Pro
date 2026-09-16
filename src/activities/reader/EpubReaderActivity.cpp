@@ -6721,12 +6721,11 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
   const bool pageHasImages = page->hasImages();
   const bool pageHasImagesNeedingDecode = pageHasImages && page->hasImagesNeedingDecode();
   const bool foregroundBlack = ReaderUtils::readerForegroundBlack();
+  const ReaderUtils::TextDitheringScope ditheringScope(renderer, SETTINGS.textAntiAliasing && foregroundBlack);
   const bool needsImageGrayscale = pageHasImages;
-  const bool needsTextGrayscale = SETTINGS.textAntiAliasing && foregroundBlack;
-  const bool needsAnyGrayscale = needsTextGrayscale || needsImageGrayscale;
+  const bool needsTextGrayscale = false;
+  const bool needsAnyGrayscale = needsImageGrayscale;
   const bool tiledGrayscale = needsAnyGrayscale && renderer.supportsStripGrayscale();
-  const bool overlapRefresh =
-      tiledGrayscale && !pageHasImages && pagesUntilFullRefresh > 1 && renderer.supportsAsyncGrayscaleBase();
   const int contentBottom = renderer.getScreenHeight() - orientedMarginBottom;
 
   const auto finalizeBufferComposition = [&]() {
@@ -6842,32 +6841,36 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
     // regardless of residue.
     pagesUntilFullRefresh = 1;
   } else if (needsAnyGrayscale) {
-    if (pagesUntilFullRefresh <= 1) {
-      // Cleanup turns still need the stronger HALF pass, but X3 grayscale
-      // overlays settle better if the OEM precondition step runs before the
-      // gray planes are written.
-      renderer.displayBuffer(pagesUntilFullRefresh < 0 ? manualScreenRefreshMode() : HalDisplay::HALF_REFRESH);
-      renderer.preconditionGrayscale();
-      pagesUntilFullRefresh = SETTINGS.getRefreshFrequency();
-    } else if (overlapRefresh) {
-      ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh, /*async=*/true);
-    } else {
-      // Use the grayscale-aware base waveform so the first visible pass is
-      // closer to the final anti-aliased result instead of flashing darker
-      // text first and softening after the grayscale overlay.
-      renderer.displayGrayscaleBase(HalDisplay::FAST_REFRESH);
-      pagesUntilFullRefresh--;
+    ensureGrayscaleStripScratch();
+    const auto displayBase = [](void* ctx) {
+      auto* self = static_cast<EpubReaderActivity*>(ctx);
+      if (self->pagesUntilFullRefresh <= 1) {
+        // Cleanup turns still need the stronger HALF pass, but X3 grayscale
+        // overlays settle better if the OEM precondition step runs before the
+        // gray planes are written.
+        self->renderer.displayBuffer(self->pagesUntilFullRefresh < 0 ? manualScreenRefreshMode()
+                                                                     : HalDisplay::HALF_REFRESH);
+        self->renderer.preconditionGrayscale();
+        self->pagesUntilFullRefresh = SETTINGS.getRefreshFrequency();
+      } else {
+        // Use the grayscale-aware base waveform so the first visible pass is
+        // closer to the final anti-aliased result instead of flashing darker
+        // text first and softening after the grayscale overlay.
+        self->renderer.displayGrayscaleBase(HalDisplay::FAST_REFRESH);
+        self->pagesUntilFullRefresh--;
+      }
+    };
+
+    if (EpubGrayscale::runPrerenderedGrayscalePass(renderer, *page, fontId, orientedMarginLeft, orientedMarginTop,
+                                                   foregroundBlack, needsTextGrayscale, needsImageGrayscale,
+                                                   grayscaleStripScratch.get(), grayscaleStripScratchSize,
+                                                   displayBase, this)) {
+      return true;
     }
+    // Fallback: update base frame if runPrerenderedGrayscalePass could not run
+    displayBase(this);
   } else {
     ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh);
-  }
-  if (needsAnyGrayscale) {
-    ensureGrayscaleStripScratch();
-  }
-  if (EpubGrayscale::runTiledGrayscalePass(renderer, *page, fontId, orientedMarginLeft, orientedMarginTop,
-                                           foregroundBlack, needsTextGrayscale, needsImageGrayscale,
-                                           grayscaleStripScratch.get(), grayscaleStripScratchSize, overlapRefresh)) {
-    return true;
   }
 
   // Save bw buffer to reset buffer state after grayscale data sync
