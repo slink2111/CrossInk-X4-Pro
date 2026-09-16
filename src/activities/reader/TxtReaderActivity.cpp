@@ -636,6 +636,7 @@ void TxtReaderActivity::initializeReader() {
   } else {
     cachedOrientedMarginTop += cachedTopMargin;
   }
+  cachedOrientedMarginTop += cachedTopMargin;
   const int statusBarHeight = UITheme::getInstance().getStatusBarHeight();
   if (statusBarHeight > 0) {
     cachedOrientedMarginBottom +=
@@ -838,6 +839,7 @@ void TxtReaderActivity::renderPage() {
     GUI.drawTopStatusBarClock(renderer, UITheme::getInstance().getMetrics().topPadding, nullptr, true, 0,
                               ReaderUtils::readerDarkModeEnabled());
   }
+
 
   ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh);
 
@@ -1108,6 +1110,7 @@ bool TxtReaderActivity::drawCurrentPageToBuffer(const std::string& filePath, Gfx
   } else {
     marginTop += topMargin;
   }
+  marginTop += topMargin;
   const int statusBarHeight = UITheme::getInstance().getStatusBarHeight();
   if (statusBarHeight > 0) {
     marginBottom += std::max(static_cast<int>(bottomMargin), statusBarHeight + ReaderUtils::STATUS_BAR_TEXT_PADDING);

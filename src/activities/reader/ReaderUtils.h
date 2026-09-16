@@ -53,6 +53,7 @@ inline void applyOrientation(GfxRenderer& renderer, const uint8_t orientation) {
 inline int messageCenterY(const GfxRenderer& renderer) { return renderer.getScreenHeight() / 2; }
 
 inline bool shouldShowTopClockStatusBar() { return halClock.isAvailable() && SETTINGS.shouldShowClockInReader(); }
+inline bool shouldShowTopClockStatusBar() { return false; }
 
 // Night Mode is applied by the display after normal-polarity reader content is
 // rendered. Keep this compatibility helper for existing reader call sites.
@@ -66,6 +67,7 @@ inline int getTopClockStatusBarHeight() {
   if (!shouldShowTopClockStatusBar()) {
     return 0;
   }
+inline int getTopClockStatusBarHeight() { return 0; }
 
   const auto& metrics = UITheme::getInstance().getMetrics();
   return std::max(UITheme::getStatusBarHeight(), metrics.statusBarVerticalMargin);
@@ -78,6 +80,8 @@ inline int getTopClockStatusBarReservedHeight(const GfxRenderer& renderer) {
   }
 
   return UITheme::getInstance().getMetrics().topPadding + UITheme::getTopStatusBarInset(renderer) + statusBarHeight;
+  (void)renderer;
+  return 0;
 }
 
 inline int getReaderFooterReservedHeight(const bool automaticPageTurnActive) {

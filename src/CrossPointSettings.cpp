@@ -669,6 +669,9 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc) {
         clamp(doc["statusBarClock"] | LEGACY_SHOW_CLOCK_NEVER, HIDE_CLOCK_MODE_COUNT, LEGACY_SHOW_CLOCK_NEVER);
     hideClock = legacyShowClock == LEGACY_SHOW_CLOCK_NEVER ? HIDE_CLOCK_ALWAYS : HIDE_CLOCK_NEVER;
     needsResave = true;
+  } else if (doc["statusBarClock"].isNull()) {
+    statusBarClock = (hideClock == HIDE_CLOCK_NEVER) ? 1 : 0;
+    needsResave = true;
   }
   if (doc["sleepTimeoutMinutes"].isNull() && !doc["sleepTimeout"].isNull()) {
     const uint8_t legacyValue =
@@ -978,6 +981,7 @@ CrossPointSettings::StatusBarSpec CrossPointSettings::statusBarSpec() const {
   spec.showBattery = statusBarBattery != 0;
   spec.showBatteryPercent = hideBatteryPercentage == HIDE_NEVER;
   spec.showClock = hideClock == HIDE_CLOCK_NEVER;
+  spec.showClock = statusBarClock != 0;
   spec.progressBarMode = statusBarProgressBar;
   spec.progressBarHeightPx =
       statusBarProgressBar != HIDE_PROGRESS ? static_cast<uint8_t>((statusBarProgressBarThickness + 1) * 2) : 0;

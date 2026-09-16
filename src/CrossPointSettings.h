@@ -425,6 +425,7 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   uint8_t statusBarTitle = CHAPTER_TITLE;
   uint8_t statusBarTimeLeft = TIME_LEFT_HIDE;
   uint8_t statusBarBattery = 1;
+  uint8_t statusBarClock = 1;
   uint8_t xtcStatusBarMode = XTC_STATUS_BAR_HIDE;
   // Clock visibility mode (requires an RTC-backed clock).
   uint8_t hideClock = HIDE_CLOCK_ALWAYS;

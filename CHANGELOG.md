@@ -9,6 +9,7 @@
 - Configurable touch page-turn gestures, pinch-to-resize text, two-finger rotation and swipe actions, and a tap-to-hide reader status bar.
 - Selectable keyboard layouts, switchable from the keyboard's language key.
 - Clippings from dictionary lookups on touch devices, plus selection of text inside EPUB tables.
+- Clock display option in the bottom reader status bar, configurable via the Customize Status Bar settings menu.
 
 ### Changed
 
@@ -22,6 +23,7 @@
 
 ### Removed
 
+- The top clock bar in reader mode, removing the reserved gap so reader text expands into the reclaimed space.
 - The undocumented X4 Pro power-button double-click frontlight toggle.
 - Built-in reader-font emoticons and hand gestures; SD-card fonts retain emoji fallback support.
 

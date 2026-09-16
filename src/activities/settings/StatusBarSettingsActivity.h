@@ -35,6 +35,7 @@ class StatusBarSettingsActivity final : public Activity {
 
   int selectedIndex = 0;
   int visibleItemCount = 0;
+  int visibleItems[16] = {};
   bool readerContext = false;
   bool stablePageNumbersAvailable = false;
 

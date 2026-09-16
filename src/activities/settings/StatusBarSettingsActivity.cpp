@@ -1,6 +1,7 @@
 #include "StatusBarSettingsActivity.h"
 
 #include <GfxRenderer.h>
+#include <HalClock.h>
 #include <I18n.h>
 
 #include <algorithm>
@@ -28,6 +29,7 @@ enum MenuItem {
   ITEM_TITLE,
   ITEM_TIME_LEFT,
   ITEM_BATTERY,
+  ITEM_CLOCK,
   ITEM_XTC_STATUS_BAR,
   ITEM_COUNT
 };
@@ -41,6 +43,7 @@ const StrId menuNames[ITEM_COUNT] = {
     StrId::STR_TITLE,
     StrId::STR_TIME_LEFT,
     StrId::STR_BATTERY,
+    StrId::STR_CLOCK,
     StrId::STR_XTC_STATUS_BAR,
 };
 
@@ -177,6 +180,8 @@ std::string valueTextForItem(const int item) {
       return SETTINGS.statusBarBookProgressPercentage ? tr(STR_SHOW) : tr(STR_HIDE);
     case ITEM_BATTERY:
       return SETTINGS.statusBarBattery ? tr(STR_SHOW) : tr(STR_HIDE);
+    case ITEM_CLOCK:
+      return SETTINGS.statusBarClock ? tr(STR_SHOW) : tr(STR_HIDE);
     default: {
       const int optionCount = optionCountForItem(item);
       const uint8_t optionIndex = currentOptionIndexForItem(item);
@@ -193,6 +198,12 @@ void StatusBarSettingsActivity::onEnter() {
 
   selectedIndex = 0;
   visibleItemCount = stablePageNumbersAvailable ? ITEM_COUNT : ITEM_COUNT - 1;
+  visibleItemCount = 0;
+  for (int i = 0; i < ITEM_COUNT; ++i) {
+    if (i == ITEM_STABLE_PAGE_NUMBERS && !stablePageNumbersAvailable) continue;
+    if (i == ITEM_CLOCK && !halClock.isAvailable()) continue;
+    visibleItems[visibleItemCount++] = i;
+  }
   uiReady = false;
   visibleRows = 1;
   topIndex = 0;
@@ -295,6 +306,10 @@ void StatusBarSettingsActivity::loop() {
 
 int StatusBarSettingsActivity::itemForVisibleIndex(const int visibleIndex) const {
   return !stablePageNumbersAvailable && visibleIndex >= ITEM_STABLE_PAGE_NUMBERS ? visibleIndex + 1 : visibleIndex;
+  if (visibleIndex >= 0 && visibleIndex < visibleItemCount) {
+    return visibleItems[visibleIndex];
+  }
+  return 0;
 }
 
 bool StatusBarSettingsActivity::selectedItemUsesOptionMenu() const {
@@ -320,6 +335,9 @@ void StatusBarSettingsActivity::handleSelection() {
       break;
     case ITEM_BATTERY:
       SETTINGS.statusBarBattery = (SETTINGS.statusBarBattery + 1) % 2;
+      break;
+    case ITEM_CLOCK:
+      SETTINGS.statusBarClock = (SETTINGS.statusBarClock + 1) % 2;
       break;
     default:
       return;

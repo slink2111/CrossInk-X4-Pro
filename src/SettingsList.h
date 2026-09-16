@@ -889,6 +889,8 @@ inline const std::vector<SettingInfo>& getBaseSettingsList() {
                           StrId::STR_CUSTOMISE_STATUS_BAR));
     add(SettingInfo::Toggle(StrId::STR_BATTERY, &CrossPointSettings::statusBarBattery, "statusBarBattery",
                             StrId::STR_CUSTOMISE_STATUS_BAR));
+    add(SettingInfo::Toggle(StrId::STR_CLOCK, &CrossPointSettings::statusBarClock, "statusBarClock",
+                            StrId::STR_CUSTOMISE_STATUS_BAR));
     add(SettingInfo::Enum(StrId::STR_XTC_STATUS_BAR, &CrossPointSettings::xtcStatusBarMode,
                           {StrId::STR_HIDE, StrId::STR_BOTTOM, StrId::STR_TOP}, "xtcStatusBarMode",
                           StrId::STR_CUSTOMISE_STATUS_BAR));

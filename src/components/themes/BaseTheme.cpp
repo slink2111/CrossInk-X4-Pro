@@ -989,6 +989,17 @@ void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
     leftClusterWidth += batteryWidth;
   }
 
+  // Draw Clock
+  char clockStr[9] = {};
+  if (statusBar.showClock && halClock.isAvailable() &&
+      halClock.formatTime(clockStr, sizeof(clockStr), SETTINGS.clockUtcOffsetQ, SETTINGS.clockFormat == 1)) {
+    const bool hasLeftItem = leftClusterWidth > 0;
+    const int clockX = leftClusterX + leftClusterWidth + (hasLeftItem ? statusItemGap : 0);
+    renderer.drawText(SMALL_FONT_ID, clockX, textY, clockStr, foregroundBlack);
+    const int clockWidth = renderer.getTextWidth(SMALL_FONT_ID, clockStr);
+    leftClusterWidth += (hasLeftItem ? statusItemGap : 0) + clockWidth;
+  }
+
   const bool hasTimeLeftLabel = timeLeftLabel != nullptr && timeLeftLabel[0] != '\0';
   if (hasTimeLeftLabel) {
     const bool hasLeftItem = leftClusterWidth > 0;

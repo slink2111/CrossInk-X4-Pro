@@ -917,6 +917,7 @@ ReaderViewportLayout computeReaderViewportLayout(GfxRenderer& renderer, const bo
   } else {
     layout.marginTop += SETTINGS.screenMarginTop;
   }
+  layout.marginTop += SETTINGS.screenMarginTop;
 
 #if CROSSINK_APP_CAP_TOUCH
   if (showFootnoteHeader) {
@@ -7231,6 +7232,7 @@ void EpubReaderActivity::renderStatusBar() const {
                     static_cast<int>(referencePageCount), !activeFootnotePreview, pageCountEstimated);
   GUI.drawTopStatusBarClock(renderer, UITheme::getInstance().getMetrics().topPadding, nullptr, true, 0,
                             ReaderUtils::readerDarkModeEnabled());
+
 }
 
 void EpubReaderActivity::refreshChapterGroupEstimate(const uint16_t viewportWidth, const uint16_t viewportHeight) {
