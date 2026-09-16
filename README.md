@@ -50,6 +50,10 @@ My goal with this fork was to maintain the core Crosspoint firmware while integr
 - Reading [progress sync](./docs/nearby-position-sync.md) between two CrossInk devices.
 - Added customizable Auto Page Turn Interval (anything between 5-120 seconds).
 - Added ability to view Recent Books as a 3x3 grid view.
+- Independent Top, Bottom, and Horizontal screen margin controls starting from 0 px up to 200 px, with a scrollable in-reader drawer pane.
+- Removed the top clock bar in reader mode, reclaiming vertical screen space so text expands upward and fits more lines per page.
+- Added optional Clock display to the bottom reader status bar (configurable in Customize Status Bar settings).
+- Full Greek and polytonic Greek UTF-8 character support in the built-in Inter UI font for book titles, file listings, and menus.
 - To view a more detailed list for each version, visit the [releases](https://github.com/uxjulia/CrossInk/releases) page to read release notes.
 
 ---
@@ -61,11 +65,12 @@ The default fonts have been replaced with Lexend Deca and Bitter. These fonts ha
 - [Lexend Deca](https://fonts.google.com/specimen/Lexend+Deca) - A research-backed sans-serif typeface designed to improve reading fluency. Lexend was engineered based on the theory that reading issues are often a design problem (visual crowding) rather than a cognitive one.
 - [Bitter](https://fonts.google.com/specimen/Bitter) - A "contemporary" slab serif typeface for text, it is specially designed for comfortably reading on digital screens. The consistent stroke weight of Bitter helps it render particularly well on e-ink devices. The medium weight has been chosen specifically for improved rendering on the X4/X3.
 
-The UI now uses [Inter](https://fonts.google.com/specimen/Inter) as the display font which has improved readability at smaller sizes.
+The UI uses [Inter](https://fonts.google.com/specimen/Inter) as the display font with improved readability at smaller sizes, featuring full Latin, Greek (monotonic and polytonic), Hebrew, and Arabic support.
 
 ### Music and Supplemental Glyphs
 
 - Built-in reader fonts include music notation, selected Cyrillic glyphs, and the Project Hail Mary CJK fallback ranges. Additional SD-card fonts retain emoji fallback support.
+- Built-in Inter UI fonts include complete Greek (`0x0370–0x03FF`) and Greek Extended (`0x1F00–0x1FFF`) coverage, ensuring book titles and filenames in Greek display accurately.
 
 ---
 
