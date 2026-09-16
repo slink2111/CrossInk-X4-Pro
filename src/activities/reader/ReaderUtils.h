@@ -69,17 +69,18 @@ inline int getTopClockStatusBarReservedHeight(const GfxRenderer& renderer) {
   return 0;
 }
 
-inline int getReaderFooterReservedHeight(const bool automaticPageTurnActive) {
+inline int getReaderFooterReservedHeight(const bool automaticPageTurnActive, const bool statusBarVisible = true) {
+  if (!statusBarVisible) {
+    return SETTINGS.screenMarginBottom;
+  }
   const uint8_t statusBarHeight = UITheme::getInstance().getStatusBarHeight();
   if (automaticPageTurnActive &&
       (statusBarHeight == 0 || statusBarHeight == UITheme::getInstance().getProgressBarHeight())) {
-    return std::max(static_cast<int>(SETTINGS.screenMarginBottom),
-                    static_cast<int>(statusBarHeight + UITheme::getInstance().getMetrics().statusBarVerticalMargin +
-                                     STATUS_BAR_TEXT_PADDING));
+    return statusBarHeight + UITheme::getInstance().getMetrics().statusBarVerticalMargin +
+           STATUS_BAR_TEXT_PADDING + SETTINGS.screenMarginBottom;
   }
   if (statusBarHeight > 0) {
-    return std::max(static_cast<int>(SETTINGS.screenMarginBottom),
-                    static_cast<int>(statusBarHeight + STATUS_BAR_TEXT_PADDING));
+    return statusBarHeight + STATUS_BAR_TEXT_PADDING + SETTINGS.screenMarginBottom;
   }
   return SETTINGS.screenMarginBottom;
 }

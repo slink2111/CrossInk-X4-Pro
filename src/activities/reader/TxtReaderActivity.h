@@ -19,8 +19,9 @@ class TxtReaderActivity final : public Activity {
   int currentPage = 0;
   int totalPages = 1;
   int pagesUntilFullRefresh = 0;
-  // Session-only display toggle; cached page layout remains unchanged.
   bool statusBarVisible = true;
+  bool cachedStatusBarVisible = true;
+  size_t pendingByteOffset = SIZE_MAX;
   bool sideButtonLongPressHandled = false;
   bool frontButtonLongPressHandled = false;
   bool longPowerButtonHandled = false;

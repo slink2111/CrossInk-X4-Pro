@@ -904,7 +904,8 @@ struct ReaderViewportLayout {
 };
 
 ReaderViewportLayout computeReaderViewportLayout(GfxRenderer& renderer, const bool automaticPageTurnActive,
-                                                 const bool showFootnoteHeader = false) {
+                                                 const bool showFootnoteHeader = false,
+                                                 const bool statusBarVisible = true) {
   ReaderViewportLayout layout{};
   renderer.getOrientedViewableTRBL(&layout.marginTop, &layout.marginRight, &layout.marginBottom, &layout.marginLeft);
   layout.marginLeft += effectiveReaderLeftMargin();
@@ -922,7 +923,7 @@ ReaderViewportLayout computeReaderViewportLayout(GfxRenderer& renderer, const bo
   (void)showFootnoteHeader;
 #endif
 
-  layout.marginBottom += ReaderUtils::getReaderFooterReservedHeight(automaticPageTurnActive);
+  layout.marginBottom += ReaderUtils::getReaderFooterReservedHeight(automaticPageTurnActive, statusBarVisible);
 
   layout.viewportWidth = renderer.getScreenWidth() - layout.marginLeft - layout.marginRight;
   layout.viewportHeight = renderer.getScreenHeight() - layout.marginTop - layout.marginBottom;
@@ -2570,6 +2571,11 @@ void EpubReaderActivity::loop() {
       ReaderUtils::isBottomStatusBarTap(renderer, touch.y, UITheme::getInstance().getStatusBarHeight())) {
     if (SETTINGS.tapToHideStatusBar) {
       statusBarVisible = !statusBarVisible;
+      {
+        RenderLock lock(*this);
+        prepareCurrentSectionForRelayout();
+        section.reset();
+      }
       requestUpdate();
     }
     return;
@@ -3404,7 +3410,7 @@ void EpubReaderActivity::openWordSelect(bool framebufferContainsPage, int initia
       return;
     }
 
-    layout = computeReaderViewportLayout(renderer, automaticPageTurnActive);
+    layout = computeReaderViewportLayout(renderer, automaticPageTurnActive, false, statusBarVisible);
     bookCachePath = epub->getCachePath();
 
     if (section->currentPage < section->pageCount - 1) {
@@ -4181,7 +4187,7 @@ void EpubReaderActivity::startClipSelection(const DictionaryClippingRequest* dic
       return;
     }
 
-    layout = computeReaderViewportLayout(renderer, automaticPageTurnActive);
+    layout = computeReaderViewportLayout(renderer, automaticPageTurnActive, false, statusBarVisible);
     readerFontId = activeSectionFontId > 0 ? activeSectionFontId : SETTINGS.getReaderFontId();
     startPage = section->currentPage;
     if (renderer.isSdCardFont(readerFontId)) {
@@ -5521,7 +5527,8 @@ void EpubReaderActivity::render(RenderLock&& lock) {
   }
 
   const ReaderViewportLayout layout = computeReaderViewportLayout(
-      renderer, automaticPageTurnActive, activeFootnotePreview || !pendingFootnotePreviewAnchor.empty());
+      renderer, automaticPageTurnActive, activeFootnotePreview || !pendingFootnotePreviewAnchor.empty(),
+      statusBarVisible);
   const uint16_t viewportWidth = layout.viewportWidth;
   const uint16_t viewportHeight = layout.viewportHeight;
   buildViewportWidth = viewportWidth;
@@ -6371,7 +6378,8 @@ bool EpubReaderActivity::restoreCurrentPageBufferAfterSilentIndex() {
     return false;
   }
 
-  const ReaderViewportLayout layout = computeReaderViewportLayout(renderer, automaticPageTurnActive);
+  const ReaderViewportLayout layout =
+      computeReaderViewportLayout(renderer, automaticPageTurnActive, false, statusBarVisible);
   renderer.clearScreen(ReaderUtils::readerBackgroundColor());
   const int renderFontId = activeSectionFontId != 0 ? activeSectionFontId : SETTINGS.getReaderFontId();
   return renderContents(std::move(page), renderFontId, layout.marginTop, layout.marginRight, layout.marginBottom,

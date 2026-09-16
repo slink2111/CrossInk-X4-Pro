@@ -29,7 +29,7 @@ constexpr size_t CHUNK_SIZE = 8 * 1024;  // 8KB chunk for reading
 constexpr unsigned long LONG_PRESS_MENU_MS = 600;
 // Cache file magic and version
 constexpr uint32_t CACHE_MAGIC = 0x54585449;  // "TXTI"
-constexpr uint8_t CACHE_VERSION = 5;          // Increment when cache format changes
+constexpr uint8_t CACHE_VERSION = 6;          // Increment when cache format changes
 constexpr uint32_t MAX_CACHE_PAGES = 65535;   // Sanity cap to prevent unbounded reserve()
 
 // Parses and word-wraps lines from a file chunk into outLines.
@@ -142,6 +142,15 @@ void TxtReaderActivity::onEnter() {
     RECENT_BOOKS.addOrUpdateBook(filePath, fileName, "", coverBmpPath);
   }
 
+  if (initialized && (cachedFontId != SETTINGS.getReaderFontId() ||
+                      cachedTopMargin != SETTINGS.screenMarginTop ||
+                      cachedBottomMargin != SETTINGS.screenMarginBottom ||
+                      cachedHorizontalMargin != SETTINGS.screenMarginHorizontal ||
+                      cachedParagraphAlignment != SETTINGS.paragraphAlignment ||
+                      cachedStatusBarVisible != statusBarVisible)) {
+    rebuildTextLayout();
+  }
+
   // Trigger first update
   requestUpdate();
 }
@@ -204,7 +213,7 @@ void TxtReaderActivity::loop() {
       ReaderUtils::isBottomStatusBarTap(renderer, touch.y, UITheme::getInstance().getStatusBarHeight())) {
     if (SETTINGS.tapToHideStatusBar) {
       statusBarVisible = !statusBarVisible;
-      requestUpdate();
+      rebuildTextLayout();
     }
     return;
   }
@@ -370,6 +379,9 @@ void TxtReaderActivity::rebuildTextLayout() {
   sdFontSystem.ensureLoaded(renderer);
   {
     RenderLock lock(*this);
+    if (currentPage >= 0 && currentPage < static_cast<int>(pageOffsets.size())) {
+      pendingByteOffset = pageOffsets[currentPage];
+    }
     pageOffsets.clear();
     currentPageLines.clear();
     initialized = false;
@@ -623,6 +635,7 @@ void TxtReaderActivity::initializeReader() {
   cachedBottomMargin = SETTINGS.screenMarginBottom;
   cachedHorizontalMargin = SETTINGS.screenMarginHorizontal;
   cachedParagraphAlignment = SETTINGS.paragraphAlignment;
+  cachedStatusBarVisible = statusBarVisible;
 
   // Calculate viewport dimensions
   renderer.getOrientedViewableTRBL(&cachedOrientedMarginTop, &cachedOrientedMarginRight, &cachedOrientedMarginBottom,
@@ -630,13 +643,8 @@ void TxtReaderActivity::initializeReader() {
   cachedOrientedMarginLeft += cachedHorizontalMargin;
   cachedOrientedMarginRight += cachedHorizontalMargin;
   cachedOrientedMarginTop += cachedTopMargin;
-  const int statusBarHeight = UITheme::getInstance().getStatusBarHeight();
-  if (statusBarHeight > 0) {
-    cachedOrientedMarginBottom +=
-        std::max(static_cast<int>(cachedBottomMargin), statusBarHeight + ReaderUtils::STATUS_BAR_TEXT_PADDING);
-  } else {
-    cachedOrientedMarginBottom += cachedBottomMargin;
-  }
+  cachedOrientedMarginBottom +=
+      ReaderUtils::getReaderFooterReservedHeight(/*automaticPageTurnActive=*/false, statusBarVisible);
 
   viewportWidth = renderer.getScreenWidth() - cachedOrientedMarginLeft - cachedOrientedMarginRight;
   const int viewportHeight = renderer.getScreenHeight() - cachedOrientedMarginTop - cachedOrientedMarginBottom;
@@ -653,8 +661,18 @@ void TxtReaderActivity::initializeReader() {
     savePageIndexCache();
   }
 
-  // Load saved progress
-  loadProgress();
+  // Restore position or load saved progress
+  if (pendingByteOffset != SIZE_MAX && !pageOffsets.empty()) {
+    auto it = std::upper_bound(pageOffsets.begin(), pageOffsets.end(), pendingByteOffset);
+    if (it != pageOffsets.begin()) {
+      currentPage = std::distance(pageOffsets.begin(), it) - 1;
+    } else {
+      currentPage = 0;
+    }
+    pendingByteOffset = SIZE_MAX;
+  } else {
+    loadProgress();
+  }
 
   initialized = true;
 }
@@ -1007,6 +1025,13 @@ bool TxtReaderActivity::loadPageIndexCache() {
     return false;
   }
 
+  uint8_t statusBar;
+  serialization::readPod(f, statusBar);
+  if (statusBar != (cachedStatusBarVisible ? 1 : 0)) {
+    LOG_DBG("TRS", "Cache status bar visibility mismatch, rebuilding");
+    return false;
+  }
+
   uint32_t numPages;
   serialization::readPod(f, numPages);
   if (numPages > MAX_CACHE_PAGES) {
@@ -1048,6 +1073,7 @@ void TxtReaderActivity::savePageIndexCache() const {
   serialization::writePod(f, static_cast<int32_t>(cachedBottomMargin));
   serialization::writePod(f, static_cast<int32_t>(cachedHorizontalMargin));
   serialization::writePod(f, cachedParagraphAlignment);
+  serialization::writePod(f, static_cast<uint8_t>(cachedStatusBarVisible ? 1 : 0));
   serialization::writePod(f, static_cast<uint32_t>(pageOffsets.size()));
 
   // Write page offsets
@@ -1093,12 +1119,8 @@ bool TxtReaderActivity::drawCurrentPageToBuffer(const std::string& filePath, Gfx
   marginLeft += horizontalMargin;
   marginRight += horizontalMargin;
   marginTop += topMargin;
-  const int statusBarHeight = UITheme::getInstance().getStatusBarHeight();
-  if (statusBarHeight > 0) {
-    marginBottom += std::max(static_cast<int>(bottomMargin), statusBarHeight + ReaderUtils::STATUS_BAR_TEXT_PADDING);
-  } else {
-    marginBottom += bottomMargin;
-  }
+  marginBottom +=
+      ReaderUtils::getReaderFooterReservedHeight(/*automaticPageTurnActive=*/false, /*statusBarVisible=*/true);
 
   const int vw = renderer.getScreenWidth() - marginLeft - marginRight;
   const int vh = renderer.getScreenHeight() - marginTop - marginBottom;
@@ -1152,13 +1174,15 @@ bool TxtReaderActivity::drawCurrentPageToBuffer(const std::string& filePath, Gfx
       serialization::readPod(cacheFile, cachedHorizontalMargin);
       uint8_t cachedAlignment;
       serialization::readPod(cacheFile, cachedAlignment);
+      uint8_t cachedStatusBar;
+      serialization::readPod(cacheFile, cachedStatusBar);
       uint32_t numPages;
       serialization::readPod(cacheFile, numPages);
 
       if (magic == CACHE_MAGIC && version == CACHE_VERSION && cachedFileSize == txt.getFileSize() && cachedVw == vw &&
           cachedLpp == linesPerPage && cachedFontId == fontId && cachedTopMargin == topMargin &&
           cachedBottomMargin == bottomMargin && cachedHorizontalMargin == horizontalMargin &&
-          cachedAlignment == paragraphAlignment && numPages > 0 &&
+          cachedAlignment == paragraphAlignment && cachedStatusBar == 1 && numPages > 0 &&
           numPages <= MAX_CACHE_PAGES) {
         if (savedPage < 0 || savedPage >= static_cast<int>(numPages)) savedPage = 0;
         for (uint32_t i = 0; i < numPages; i++) {

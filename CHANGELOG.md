@@ -15,7 +15,7 @@
 ### Changed
 
 - Touch EPUB readers use a half-height, five-tab menu. Sticky opens the menu with a swipe up and book details with a swipe down; X4 Pro frontlight controls include reading stats and reader shortcuts.
-- Screen margins have separate Top, Bottom, and Left/Right controls, starting from 0 pixels and adjustable up to 200 pixels.
+- Screen margins have separate Top, Bottom, and Left/Right controls, starting from 0 pixels and adjustable up to 200 pixels. The bottom margin is measured from the bottom of the screen when the status bar is hidden, and from the top of the status bar when visible; toggling status bar visibility or adjusting margins triggers dynamic re-indexing.
 - Night Mode applies system-wide on ESP32-S3 devices; frontlit readers can disable periodic full-screen refreshes.
 - Waking keeps the sleep screen visible until the reader or Home is ready, unless a custom boot screen is enabled.
 - Font choices show available point sizes, Download Fonts replaces the font-manager label, and Wi-Fi passwords are visible during entry.
