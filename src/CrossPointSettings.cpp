@@ -736,11 +736,17 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc) {
     lineHeightPercent = legacyLineSpacingToPercent(legacySpacing, fontFamily, sdFontFamilyName[0] != '\0');
     needsResave = true;
   }
-  if (doc["screenMarginVertical"].isNull() || doc["screenMarginHorizontal"].isNull()) {
-    const uint8_t legacyScreenMargin =
-        std::clamp(doc["screenMargin"] | static_cast<uint8_t>(MIN_SCREEN_MARGIN), MIN_SCREEN_MARGIN, MAX_SCREEN_MARGIN);
-    if (doc["screenMarginVertical"].isNull()) screenMarginVertical = legacyScreenMargin;
-    if (doc["screenMarginHorizontal"].isNull()) screenMarginHorizontal = legacyScreenMargin;
+  if (doc["screenMarginTop"].isNull() || doc["screenMarginBottom"].isNull() || doc["screenMarginHorizontal"].isNull()) {
+    const uint8_t legacyVertical =
+        std::clamp(doc["screenMarginTop"] | doc["screenMarginVertical"] | doc["screenMargin"] |
+                       static_cast<uint8_t>(MIN_SCREEN_MARGIN),
+                   MIN_SCREEN_MARGIN, MAX_SCREEN_MARGIN);
+    const uint8_t legacyHorizontal =
+        std::clamp(doc["screenMarginHorizontal"] | doc["screenMargin"] | static_cast<uint8_t>(MIN_SCREEN_MARGIN),
+                   MIN_SCREEN_MARGIN, MAX_SCREEN_MARGIN);
+    if (doc["screenMarginTop"].isNull()) screenMarginTop = legacyVertical;
+    if (doc["screenMarginBottom"].isNull()) screenMarginBottom = legacyVertical;
+    if (doc["screenMarginHorizontal"].isNull()) screenMarginHorizontal = legacyHorizontal;
     needsResave = true;
   }
   if (doc["language"].is<const char*>()) {
@@ -909,8 +915,9 @@ bool CrossPointSettings::loadFromBinaryFile() {
     if (++settingsRead >= fileSettingsCount) break;
     uint8_t legacyScreenMargin = MIN_SCREEN_MARGIN;
     serialization::readPod(inputFile, legacyScreenMargin);
-    screenMarginVertical = std::clamp(legacyScreenMargin, MIN_SCREEN_MARGIN, MAX_SCREEN_MARGIN);
-    screenMarginHorizontal = screenMarginVertical;
+    screenMarginTop = std::clamp(legacyScreenMargin, MIN_SCREEN_MARGIN, MAX_SCREEN_MARGIN);
+    screenMarginBottom = screenMarginTop;
+    screenMarginHorizontal = screenMarginTop;
     if (++settingsRead >= fileSettingsCount) break;
     readAndValidate(inputFile, sleepScreenCoverMode, SLEEP_SCREEN_COVER_MODE_COUNT);
     if (++settingsRead >= fileSettingsCount) break;

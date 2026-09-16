@@ -153,7 +153,8 @@ dictionary SD-font family name. Version 6 stores reader font sizes as physical
 point sizes, version 7 appends the dictionary font's selected point size, and
 version 8 splits the screen margin into vertical and horizontal values. Version
 9 removes the obsolete per-book Dark Mode byte: Dark Mode is now a global
-display setting.
+display setting. Version 10 splits the vertical screen margin into independent
+top and bottom margins.
 This lets the
 file preserve an auto-page-turn interval without forcing custom font/layout
 settings for the book. It also stores a per-book EPUB render mode override,
@@ -165,7 +166,7 @@ fallback successfully opens a difficult book.
 
 ```c++
 struct ReaderSettingsBin {
-    u8 version; // 9
+    u8 version; // 10
     u8 flags;   // bit 0 = custom reader settings, bit 1 = custom auto-page-turn interval, bit 2 = render mode override, bit 3 = dictionary font override
     u16 autoPageTurnSeconds;
     u8 renderMode; // 0 = CrossInk Default, 1 = Balanced, 2 = Light
@@ -175,7 +176,8 @@ struct ReaderSettingsBin {
     u8 lineHeightPercent;
     u8 wordSpacing; // 0 = natural font spacing; 1-4 widen each gap by ~75% per level
     u8 orientation;
-    u8 screenMarginVertical;
+    u8 screenMarginTop;
+    u8 screenMarginBottom;
     u8 screenMarginHorizontal;
     u8 publisherPageNumbers;
     u8 paragraphAlignment;

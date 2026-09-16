@@ -24,8 +24,8 @@ constexpr uint8_t STATUS_BAR_TEXT_PADDING = 3;
 // Gap between the top clock status bar band and the first line of book text.
 // Signed so negative values pull the text up toward the clock (unsigned would wrap
 // a negative to a huge positive). Note the book-text top margin is
-// std::max(screenMarginVertical, reservedClockHeight + TOP_CLOCK_TEXT_PADDING), so this only
-// bites once reservedClockHeight + padding drops below the vertical-margin setting.
+// std::max(screenMarginTop, reservedClockHeight + TOP_CLOCK_TEXT_PADDING), so this only
+// bites once reservedClockHeight + padding drops below the top-margin setting.
 constexpr int8_t TOP_CLOCK_TEXT_PADDING = 0;
 
 inline GfxRenderer::Orientation toRendererOrientation(const uint8_t orientation) {
@@ -84,12 +84,15 @@ inline int getReaderFooterReservedHeight(const bool automaticPageTurnActive) {
   const uint8_t statusBarHeight = UITheme::getInstance().getStatusBarHeight();
   if (automaticPageTurnActive &&
       (statusBarHeight == 0 || statusBarHeight == UITheme::getInstance().getProgressBarHeight())) {
-    return std::max(static_cast<int>(SETTINGS.screenMarginVertical),
+    return std::max(static_cast<int>(SETTINGS.screenMarginBottom),
                     static_cast<int>(statusBarHeight + UITheme::getInstance().getMetrics().statusBarVerticalMargin +
                                      STATUS_BAR_TEXT_PADDING));
   }
-  return std::max(static_cast<int>(SETTINGS.screenMarginVertical),
-                  static_cast<int>(statusBarHeight + STATUS_BAR_TEXT_PADDING));
+  if (statusBarHeight > 0) {
+    return std::max(static_cast<int>(SETTINGS.screenMarginBottom),
+                    static_cast<int>(statusBarHeight + STATUS_BAR_TEXT_PADDING));
+  }
+  return SETTINGS.screenMarginBottom;
 }
 
 inline uint8_t rotatedOrientation(const uint8_t orientation, const bool clockwise) {

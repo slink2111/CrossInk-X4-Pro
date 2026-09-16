@@ -16,7 +16,8 @@ TEST(ReaderDrawerModel, TabOrderMatchesTouchDesign) {
 TEST(ReaderDrawerModel, TapSlidersSnapArbitraryValuesToTheNearestFive) {
   EXPECT_EQ(snapSliderTapValue(82, 70, 200, 5), 80);   // Line Spacing
   EXPECT_EQ(snapSliderTapValue(83, 70, 200, 5), 85);   // Line Spacing
-  EXPECT_EQ(snapSliderTapValue(8, 5, 150, 5), 10);     // Screen Margin
+  EXPECT_EQ(snapSliderTapValue(8, 0, 150, 5), 10);     // Screen Margin
+  EXPECT_EQ(snapSliderTapValue(2, 0, 150, 5), 0);      // Screen Margin snaps to 0
   EXPECT_EQ(snapSliderTapValue(43, 0, 100, 5), 45);    // Go to %
   EXPECT_EQ(snapSliderTapValue(118, 5, 120, 5), 120);  // Auto Page Turn
   EXPECT_EQ(snapSliderTapValue(43, 0, 100, 1), 43);    // Fixed values stay exact

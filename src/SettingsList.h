@@ -639,10 +639,14 @@ inline const std::vector<SettingInfo>& getBaseSettingsList() {
             .withEnumRawValues({CrossPointSettings::PORTRAIT, CrossPointSettings::LANDSCAPE_CW,
                                 CrossPointSettings::LANDSCAPE_CCW, CrossPointSettings::INVERTED}));
     add(SettingInfo::Submenu(StrId::STR_SCREEN_MARGIN, SettingAction::ScreenMargin));
-    add(SettingInfo::Value(StrId::STR_TOP_BOTTOM, &CrossPointSettings::screenMarginVertical,
+    add(SettingInfo::Value(StrId::STR_TOP, &CrossPointSettings::screenMarginTop,
                            {CrossPointSettings::MIN_SCREEN_MARGIN, CrossPointSettings::MAX_SCREEN_MARGIN,
                             CrossPointSettings::SCREEN_MARGIN_SMALL_STEP},
-                           "screenMarginVertical", StrId::STR_CAT_READER));
+                           "screenMarginTop", StrId::STR_CAT_READER));
+    add(SettingInfo::Value(StrId::STR_BOTTOM, &CrossPointSettings::screenMarginBottom,
+                           {CrossPointSettings::MIN_SCREEN_MARGIN, CrossPointSettings::MAX_SCREEN_MARGIN,
+                            CrossPointSettings::SCREEN_MARGIN_SMALL_STEP},
+                           "screenMarginBottom", StrId::STR_CAT_READER));
     add(SettingInfo::Value(StrId::STR_LEFT_RIGHT, &CrossPointSettings::screenMarginHorizontal,
                            {CrossPointSettings::MIN_SCREEN_MARGIN, CrossPointSettings::MAX_SCREEN_MARGIN,
                             CrossPointSettings::SCREEN_MARGIN_SMALL_STEP},
@@ -1132,8 +1136,9 @@ inline std::vector<SettingInfo> buildReaderPageLayoutSettingsList(const std::vec
 
 inline std::vector<SettingInfo> buildReaderScreenMarginSettingsList(const std::vector<SettingInfo>& allSettings) {
   std::vector<SettingInfo> settings;
-  settings.reserve(2);
-  addSettingByName(settings, allSettings, StrId::STR_TOP_BOTTOM);
+  settings.reserve(3);
+  addSettingByName(settings, allSettings, StrId::STR_TOP);
+  addSettingByName(settings, allSettings, StrId::STR_BOTTOM);
   addSettingByName(settings, allSettings, StrId::STR_LEFT_RIGHT);
   return settings;
 }

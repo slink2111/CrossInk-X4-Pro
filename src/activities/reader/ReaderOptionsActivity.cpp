@@ -504,7 +504,8 @@ void ReaderOptionsActivity::toggleCurrentSetting() {
       openWordSpacingPicker();
       return;
     }
-    if (setting.valuePtr == &CrossPointSettings::screenMarginVertical ||
+    if (setting.valuePtr == &CrossPointSettings::screenMarginTop ||
+        setting.valuePtr == &CrossPointSettings::screenMarginBottom ||
         setting.valuePtr == &CrossPointSettings::screenMarginHorizontal) {
       openScreenMarginPicker(setting);
       return;
@@ -797,7 +798,8 @@ void ReaderOptionsActivity::render(RenderLock&&) {
                                   (*currentSettings)[selectedIndex].valuePtr == &CrossPointSettings::lineHeightPercent;
   const bool selectedScreenMargin =
       selectedIndex >= 0 && selectedIndex < settingsCount &&
-      ((*currentSettings)[selectedIndex].valuePtr == &CrossPointSettings::screenMarginVertical ||
+      ((*currentSettings)[selectedIndex].valuePtr == &CrossPointSettings::screenMarginTop ||
+       (*currentSettings)[selectedIndex].valuePtr == &CrossPointSettings::screenMarginBottom ||
        (*currentSettings)[selectedIndex].valuePtr == &CrossPointSettings::screenMarginHorizontal);
   const auto labels = mappedInput.mapLabels(
       mappedInput.withBackArrow(tr(STR_BACK)),

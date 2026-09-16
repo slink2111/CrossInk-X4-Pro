@@ -57,7 +57,7 @@ class EpubReaderTouchMenuActivity final : public Activity {
  private:
   using RowId = ReaderDrawerCatalogItem;
 
-  using UiApp = freeink::ui::FreeInkApp<48, 9>;
+  using UiApp = freeink::ui::FreeInkApp<48, 16>;
   static constexpr freeink::ui::ActionId ACTION_ROW = 1;
   static constexpr freeink::ui::ActionId ACTION_TAB = 2;
   static constexpr freeink::ui::ActionId ACTION_DISMISS = 3;
@@ -65,6 +65,10 @@ class EpubReaderTouchMenuActivity final : public Activity {
   static constexpr freeink::ui::ActionId ACTION_SLIDER = 5;
   static constexpr freeink::ui::ActionId ACTION_STEP = 6;
   static constexpr freeink::ui::ActionId ACTION_CONFIRM = 7;
+  static constexpr freeink::ui::ActionId ACTION_SLIDER_SECOND = 8;
+  static constexpr freeink::ui::ActionId ACTION_STEP_SECOND = 9;
+  static constexpr freeink::ui::ActionId ACTION_SLIDER_THIRD = 10;
+  static constexpr freeink::ui::ActionId ACTION_STEP_THIRD = 11;
   static constexpr size_t WINDOW_SIZE = 20;
 
   std::shared_ptr<Epub> epub;

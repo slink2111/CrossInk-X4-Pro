@@ -43,7 +43,8 @@ class EpubReaderActivity final : public Activity {
     uint8_t lineHeightPercent = 100;
     uint8_t wordSpacing = 0;
     uint8_t orientation = 0;
-    uint8_t screenMarginVertical = 5;
+    uint8_t screenMarginTop = 0;
+    uint8_t screenMarginBottom = 0;
     uint8_t screenMarginHorizontal = 5;
     uint8_t publisherPageNumbers = 0;
     uint8_t paragraphAlignment = 0;

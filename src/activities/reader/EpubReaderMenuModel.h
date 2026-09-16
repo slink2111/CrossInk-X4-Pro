@@ -231,7 +231,8 @@ struct ReaderSettingsDraft {
   std::array<char, 64> sdFontFamilyName{};
   uint8_t lineHeightPercent = 0;
   uint8_t wordSpacing = 0;
-  uint8_t screenMarginVertical = 0;
+  uint8_t screenMarginTop = 0;
+  uint8_t screenMarginBottom = 0;
   uint8_t screenMarginHorizontal = 0;
   uint8_t orientation = 0;
   uint8_t paragraphAlignment = 0;

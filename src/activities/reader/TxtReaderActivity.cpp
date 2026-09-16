@@ -29,7 +29,7 @@ constexpr size_t CHUNK_SIZE = 8 * 1024;  // 8KB chunk for reading
 constexpr unsigned long LONG_PRESS_MENU_MS = 600;
 // Cache file magic and version
 constexpr uint32_t CACHE_MAGIC = 0x54585449;  // "TXTI"
-constexpr uint8_t CACHE_VERSION = 4;          // Increment when cache format changes
+constexpr uint8_t CACHE_VERSION = 5;          // Increment when cache format changes
 constexpr uint32_t MAX_CACHE_PAGES = 65535;   // Sanity cap to prevent unbounded reserve()
 
 // Parses and word-wraps lines from a file chunk into outLines.
@@ -619,7 +619,8 @@ void TxtReaderActivity::initializeReader() {
 
   // Store current settings for cache validation
   cachedFontId = SETTINGS.getReaderFontId();
-  cachedVerticalMargin = SETTINGS.screenMarginVertical;
+  cachedTopMargin = SETTINGS.screenMarginTop;
+  cachedBottomMargin = SETTINGS.screenMarginBottom;
   cachedHorizontalMargin = SETTINGS.screenMarginHorizontal;
   cachedParagraphAlignment = SETTINGS.paragraphAlignment;
 
@@ -630,14 +631,18 @@ void TxtReaderActivity::initializeReader() {
   cachedOrientedMarginRight += cachedHorizontalMargin;
   const int topStatusBarReservedHeight = ReaderUtils::getTopClockStatusBarReservedHeight(renderer);
   if (topStatusBarReservedHeight > 0) {
-    cachedOrientedMarginTop += std::max(static_cast<int>(cachedVerticalMargin),
-                                        topStatusBarReservedHeight + ReaderUtils::TOP_CLOCK_TEXT_PADDING);
+    cachedOrientedMarginTop +=
+        std::max(static_cast<int>(cachedTopMargin), topStatusBarReservedHeight + ReaderUtils::TOP_CLOCK_TEXT_PADDING);
   } else {
-    cachedOrientedMarginTop += cachedVerticalMargin;
+    cachedOrientedMarginTop += cachedTopMargin;
   }
-  cachedOrientedMarginBottom += std::max(
-      cachedVerticalMargin,
-      static_cast<uint8_t>(UITheme::getInstance().getStatusBarHeight() + ReaderUtils::STATUS_BAR_TEXT_PADDING));
+  const int statusBarHeight = UITheme::getInstance().getStatusBarHeight();
+  if (statusBarHeight > 0) {
+    cachedOrientedMarginBottom +=
+        std::max(static_cast<int>(cachedBottomMargin), statusBarHeight + ReaderUtils::STATUS_BAR_TEXT_PADDING);
+  } else {
+    cachedOrientedMarginBottom += cachedBottomMargin;
+  }
 
   viewportWidth = renderer.getScreenWidth() - cachedOrientedMarginLeft - cachedOrientedMarginRight;
   const int viewportHeight = renderer.getScreenHeight() - cachedOrientedMarginTop - cachedOrientedMarginBottom;
@@ -937,7 +942,7 @@ bool TxtReaderActivity::loadPageIndexCache() {
   // - int32_t: viewport width
   // - int32_t: lines per page
   // - int32_t: font ID (to invalidate cache on font change)
-  // - int32_t: vertical and horizontal screen margins (to invalidate cache on margin changes)
+  // - int32_t: top, bottom, and horizontal screen margins (to invalidate cache on margin changes)
   // - uint8_t: paragraph alignment (to invalidate cache on alignment change)
   // - uint32_t: total pages count
   // - N * uint32_t: page offsets
@@ -992,11 +997,14 @@ bool TxtReaderActivity::loadPageIndexCache() {
     return false;
   }
 
-  int32_t verticalMargin;
+  int32_t topMargin;
+  int32_t bottomMargin;
   int32_t horizontalMargin;
-  serialization::readPod(f, verticalMargin);
+  serialization::readPod(f, topMargin);
+  serialization::readPod(f, bottomMargin);
   serialization::readPod(f, horizontalMargin);
-  if (verticalMargin != cachedVerticalMargin || horizontalMargin != cachedHorizontalMargin) {
+  if (topMargin != cachedTopMargin || bottomMargin != cachedBottomMargin ||
+      horizontalMargin != cachedHorizontalMargin) {
     LOG_DBG("TRS", "Cache screen margins mismatch, rebuilding");
     return false;
   }
@@ -1045,7 +1053,8 @@ void TxtReaderActivity::savePageIndexCache() const {
   serialization::writePod(f, static_cast<int32_t>(viewportWidth));
   serialization::writePod(f, static_cast<int32_t>(linesPerPage));
   serialization::writePod(f, static_cast<int32_t>(cachedFontId));
-  serialization::writePod(f, static_cast<int32_t>(cachedVerticalMargin));
+  serialization::writePod(f, static_cast<int32_t>(cachedTopMargin));
+  serialization::writePod(f, static_cast<int32_t>(cachedBottomMargin));
   serialization::writePod(f, static_cast<int32_t>(cachedHorizontalMargin));
   serialization::writePod(f, cachedParagraphAlignment);
   serialization::writePod(f, static_cast<uint32_t>(pageOffsets.size()));
@@ -1083,7 +1092,8 @@ bool TxtReaderActivity::drawCurrentPageToBuffer(const std::string& filePath, Gfx
 
   // Compute layout values that match what initializeReader() produces
   const int fontId = SETTINGS.getReaderFontId();
-  const uint8_t verticalMargin = SETTINGS.screenMarginVertical;
+  const uint8_t topMargin = SETTINGS.screenMarginTop;
+  const uint8_t bottomMargin = SETTINGS.screenMarginBottom;
   const uint8_t horizontalMargin = SETTINGS.screenMarginHorizontal;
   const uint8_t paragraphAlignment = SETTINGS.paragraphAlignment;
 
@@ -1094,12 +1104,16 @@ bool TxtReaderActivity::drawCurrentPageToBuffer(const std::string& filePath, Gfx
   const int topStatusBarReservedHeight = ReaderUtils::getTopClockStatusBarReservedHeight(renderer);
   if (topStatusBarReservedHeight > 0) {
     marginTop +=
-        std::max(static_cast<int>(verticalMargin), topStatusBarReservedHeight + ReaderUtils::TOP_CLOCK_TEXT_PADDING);
+        std::max(static_cast<int>(topMargin), topStatusBarReservedHeight + ReaderUtils::TOP_CLOCK_TEXT_PADDING);
   } else {
-    marginTop += verticalMargin;
+    marginTop += topMargin;
   }
-  marginBottom += std::max(verticalMargin, static_cast<uint8_t>(UITheme::getInstance().getStatusBarHeight() +
-                                                                ReaderUtils::STATUS_BAR_TEXT_PADDING));
+  const int statusBarHeight = UITheme::getInstance().getStatusBarHeight();
+  if (statusBarHeight > 0) {
+    marginBottom += std::max(static_cast<int>(bottomMargin), statusBarHeight + ReaderUtils::STATUS_BAR_TEXT_PADDING);
+  } else {
+    marginBottom += bottomMargin;
+  }
 
   const int vw = renderer.getScreenWidth() - marginLeft - marginRight;
   const int vh = renderer.getScreenHeight() - marginTop - marginBottom;
@@ -1144,11 +1158,12 @@ bool TxtReaderActivity::drawCurrentPageToBuffer(const std::string& filePath, Gfx
       serialization::readPod(cacheFile, version);
       uint32_t cachedFileSize;
       serialization::readPod(cacheFile, cachedFileSize);
-      int32_t cachedVw, cachedLpp, cachedFontId, cachedVerticalMargin, cachedHorizontalMargin;
+      int32_t cachedVw, cachedLpp, cachedFontId, cachedTopMargin, cachedBottomMargin, cachedHorizontalMargin;
       serialization::readPod(cacheFile, cachedVw);
       serialization::readPod(cacheFile, cachedLpp);
       serialization::readPod(cacheFile, cachedFontId);
-      serialization::readPod(cacheFile, cachedVerticalMargin);
+      serialization::readPod(cacheFile, cachedTopMargin);
+      serialization::readPod(cacheFile, cachedBottomMargin);
       serialization::readPod(cacheFile, cachedHorizontalMargin);
       uint8_t cachedAlignment;
       serialization::readPod(cacheFile, cachedAlignment);
@@ -1156,8 +1171,9 @@ bool TxtReaderActivity::drawCurrentPageToBuffer(const std::string& filePath, Gfx
       serialization::readPod(cacheFile, numPages);
 
       if (magic == CACHE_MAGIC && version == CACHE_VERSION && cachedFileSize == txt.getFileSize() && cachedVw == vw &&
-          cachedLpp == linesPerPage && cachedFontId == fontId && cachedVerticalMargin == verticalMargin &&
-          cachedHorizontalMargin == horizontalMargin && cachedAlignment == paragraphAlignment && numPages > 0 &&
+          cachedLpp == linesPerPage && cachedFontId == fontId && cachedTopMargin == topMargin &&
+          cachedBottomMargin == bottomMargin && cachedHorizontalMargin == horizontalMargin &&
+          cachedAlignment == paragraphAlignment && numPages > 0 &&
           numPages <= MAX_CACHE_PAGES) {
         if (savedPage < 0 || savedPage >= static_cast<int>(numPages)) savedPage = 0;
         for (uint32_t i = 0; i < numPages; i++) {

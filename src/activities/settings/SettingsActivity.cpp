@@ -981,7 +981,8 @@ void SettingsActivity::toggleCurrentSetting() {
     openWordSpacingPicker();
     return;
   }
-  if (setting.valuePtr == &CrossPointSettings::screenMarginVertical ||
+  if (setting.valuePtr == &CrossPointSettings::screenMarginTop ||
+      setting.valuePtr == &CrossPointSettings::screenMarginBottom ||
       setting.valuePtr == &CrossPointSettings::screenMarginHorizontal) {
     openScreenMarginPicker(setting);
     return;
@@ -1521,7 +1522,9 @@ void SettingsActivity::render(RenderLock&&) {
                       (*currentSettings)[selectedSettingIndex - 1].valuePtr ==
                           &CrossPointSettings::readingIdleTimeThresholdUnits ||
                       (*currentSettings)[selectedSettingIndex - 1].valuePtr ==
-                          &CrossPointSettings::screenMarginVertical ||
+                          &CrossPointSettings::screenMarginTop ||
+                      (*currentSettings)[selectedSettingIndex - 1].valuePtr ==
+                          &CrossPointSettings::screenMarginBottom ||
                       (*currentSettings)[selectedSettingIndex - 1].valuePtr ==
                           &CrossPointSettings::screenMarginHorizontal ||
                       (*currentSettings)[selectedSettingIndex - 1].value16Ptr ==
