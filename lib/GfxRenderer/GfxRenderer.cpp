@@ -874,16 +874,12 @@ static void renderCharImpl(const GfxRenderer& renderer, GfxRenderer::RenderMode 
 
           if (renderMode == GfxRenderer::BW) {
             if (renderer.isTextDithering()) {
-              if (bmpVal == 0) {
+              if (bmpVal <= 1) {
+                // Core (0) and dark-gray inner edge (>50% coverage, 1): solid black to preserve crisp, unbroken strokes
                 renderer.drawPixel(screenX, screenY, pixelState);
-              } else if (bmpVal == 1) {
-                // 75% dark gray: 3 of 4 pixels in 2x2 Bayer grid
-                if ((screenX & 1) || !(screenY & 1)) {
-                  renderer.drawPixel(screenX, screenY, pixelState);
-                }
               } else if (bmpVal == 2) {
-                // 25% light gray: 1 of 4 pixels in 2x2 Bayer grid
-                if (!((screenX | screenY) & 1)) {
+                // Light-gray outer edge (~33% coverage, 2): 50% high-frequency checkerboard to smoothly blend edge curves
+                if (((screenX + screenY) & 1) == 0) {
                   renderer.drawPixel(screenX, screenY, pixelState);
                 }
               }

@@ -59,6 +59,7 @@ enum class ReaderDrawerCatalogItem : uint8_t {
   DictionaryFont,
   Spacing,
   TextAa,
+  TextAa1Bit,
   Focus,
   GuideDots,
   Margins,
@@ -122,6 +123,7 @@ constexpr ReaderDrawerCatalog makeReaderDrawerCatalog(const ReaderDrawerAvailabi
   font.add(ReaderDrawerCatalogItem::DictionaryFont);
   font.add(ReaderDrawerCatalogItem::Spacing);
   font.add(ReaderDrawerCatalogItem::TextAa);
+  font.add(ReaderDrawerCatalogItem::TextAa1Bit);
   font.add(ReaderDrawerCatalogItem::Focus);
   font.add(ReaderDrawerCatalogItem::GuideDots);
 
@@ -237,6 +239,7 @@ struct ReaderSettingsDraft {
   uint8_t orientation = 0;
   uint8_t paragraphAlignment = 0;
   uint8_t textAntiAliasing = 0;
+  uint8_t textAntiAliasing1Bit = 0;
   uint8_t focusReadingEnabled = 0;
   uint8_t guideReadingEnabled = 0;
   uint8_t hyphenationEnabled = 0;

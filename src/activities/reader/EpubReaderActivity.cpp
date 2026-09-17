@@ -1032,6 +1032,7 @@ void captureReaderSettings(EpubReaderActivity::ReaderSettingsSnapshot& out) {
   out.embeddedStyle = SETTINGS.embeddedStyle;
   out.hyphenationEnabled = SETTINGS.hyphenationEnabled;
   out.textAntiAliasing = SETTINGS.textAntiAliasing;
+  out.textAntiAliasing1Bit = SETTINGS.textAntiAliasing1Bit;
   out.imageRendering = SETTINGS.imageRendering;
   out.extraParagraphSpacing = SETTINGS.extraParagraphSpacing;
   out.forceParagraphIndents = SETTINGS.forceParagraphIndents;
@@ -1073,6 +1074,7 @@ void applyReaderSettings(const EpubReaderActivity::ReaderSettingsSnapshot& in) {
   SETTINGS.embeddedStyle = in.embeddedStyle ? 1 : 0;
   SETTINGS.hyphenationEnabled = in.hyphenationEnabled ? 1 : 0;
   SETTINGS.textAntiAliasing = in.textAntiAliasing ? 1 : 0;
+  SETTINGS.textAntiAliasing1Bit = in.textAntiAliasing1Bit ? 1 : 0;
   SETTINGS.imageRendering =
       in.imageRendering < CrossPointSettings::IMAGE_RENDERING_COUNT ? in.imageRendering : SETTINGS.imageRendering;
   SETTINGS.extraParagraphSpacing = in.extraParagraphSpacing ? 1 : 0;
@@ -6721,10 +6723,10 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
   const bool pageHasImages = page->hasImages();
   const bool pageHasImagesNeedingDecode = pageHasImages && page->hasImagesNeedingDecode();
   const bool foregroundBlack = ReaderUtils::readerForegroundBlack();
-  const ReaderUtils::TextDitheringScope ditheringScope(renderer, SETTINGS.textAntiAliasing && foregroundBlack);
+  const ReaderUtils::TextDitheringScope ditheringScope(renderer, SETTINGS.textAntiAliasing1Bit && foregroundBlack);
   const bool needsImageGrayscale = pageHasImages;
-  const bool needsTextGrayscale = false;
-  const bool needsAnyGrayscale = needsImageGrayscale;
+  const bool needsTextGrayscale = SETTINGS.textAntiAliasing && foregroundBlack;
+  const bool needsAnyGrayscale = needsTextGrayscale || needsImageGrayscale;
   const bool tiledGrayscale = needsAnyGrayscale && renderer.supportsStripGrayscale();
   const int contentBottom = renderer.getScreenHeight() - orientedMarginBottom;
 
