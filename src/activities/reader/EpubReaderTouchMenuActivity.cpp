@@ -858,6 +858,7 @@ void EpubReaderTouchMenuActivity::buildSpacingPane(UiApp::ScreenType& screen) {
 
 void EpubReaderTouchMenuActivity::buildMarginsPane(UiApp::ScreenType& screen) {
   buildPaneHeader(screen);
+  const fui::Rect listBounds = screen.body();
   const int total = 3;
   visibleRows = 2;
   const int top = std::clamp<int>(state.paneTopIndex, 0, std::max(0, total - visibleRows));
@@ -910,7 +911,7 @@ void EpubReaderTouchMenuActivity::buildMarginsPane(UiApp::ScreenType& screen) {
 
   drawDualReaderSliderRows(screen, sliders[static_cast<size_t>(top)], sliders[static_cast<size_t>(top + 1)]);
 
-  fui::drawListScrollIndicator(screen.target(), drawerScrollbarBounds(screen.body()), total, visibleRows, top,
+  fui::drawListScrollIndicator(screen.target(), drawerScrollbarBounds(listBounds), total, visibleRows, top,
                                screen.theme().listScrollWidth, screen.theme().listScrollSide,
                                screen.theme().listScrollInset);
 }

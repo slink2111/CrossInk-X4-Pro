@@ -30,6 +30,7 @@
 
 ### Fixed
 
+- Touch reader Screen Margins drawer pane displays the scrollbar indicator over the full content area instead of an empty sliver.
 - Clipping highlights stay aligned after font changes, retain multi-paragraph text, and remain readable in Dark Mode. Selection stays on its final page, and browsing saved clippings responds reliably.
 - Dictionary lookup respects landscape controls and selected fonts, handles repeated lookups more reliably, and returns to the reader cleanly when dismissed.
 - EPUB tables retain column widths and wrap long labels; mixed-direction text, Arabic/Persian shaping, ruby annotations, and footnote styling render correctly.
