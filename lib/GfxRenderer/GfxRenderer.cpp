@@ -872,9 +872,21 @@ static void renderCharImpl(const GfxRenderer& renderer, GfxRenderer::RenderMode 
           // 0 -> black, 1 -> dark grey, 2 -> light grey, 3 -> white
           const uint8_t bmpVal = 3 - ((byte >> bit_index) & 0x3);
 
-          if (renderMode == GfxRenderer::BW && bmpVal < 3) {
-            // Black (also paints over the grays in BW mode)
-            renderer.drawPixel(screenX, screenY, pixelState);
+          if (renderMode == GfxRenderer::BW) {
+            if (renderer.isTextDithering()) {
+              if (bmpVal <= 1) {
+                // Core (0) and dark-gray inner edge (>50% coverage, 1): solid black to preserve crisp, unbroken strokes
+                renderer.drawPixel(screenX, screenY, pixelState);
+              } else if (bmpVal == 2) {
+                // Light-gray outer edge (~33% coverage, 2): 50% high-frequency checkerboard to smoothly blend edge curves
+                if (((screenX + screenY) & 1) == 0) {
+                  renderer.drawPixel(screenX, screenY, pixelState);
+                }
+              }
+            } else if (bmpVal < 3) {
+              // Black (also paints over the grays in BW mode)
+              renderer.drawPixel(screenX, screenY, pixelState);
+            }
           } else if (renderMode == GfxRenderer::GRAYSCALE_MSB && (bmpVal == 1 || bmpVal == 2)) {
             // Light gray (also mark the MSB if it's going to be a dark gray too)
             // Dedicated X3 gray LUTs now provide proper 4-level gray on both devices
@@ -3056,9 +3068,17 @@ void GfxRenderer::preconditionGrayscale(int x, int y, int w, int h) const {
                                 static_cast<uint16_t>(x1 - x0 + 1), static_cast<uint16_t>(y1 - y0 + 1));
 }
 
-void GfxRenderer::copyGrayscaleLsbBuffers() const { display.copyGrayscaleLsbBuffers(frameBuffer); }
+void GfxRenderer::copyGrayscaleBuffers(const uint8_t* lsbBuffer, const uint8_t* msbBuffer) const {
+  display.copyGrayscaleBuffers(lsbBuffer ? lsbBuffer : frameBuffer, msbBuffer ? msbBuffer : frameBuffer);
+}
 
-void GfxRenderer::copyGrayscaleMsbBuffers() const { display.copyGrayscaleMsbBuffers(frameBuffer); }
+void GfxRenderer::copyGrayscaleLsbBuffers(const uint8_t* lsbBuffer) const {
+  display.copyGrayscaleLsbBuffers(lsbBuffer ? lsbBuffer : frameBuffer);
+}
+
+void GfxRenderer::copyGrayscaleMsbBuffers(const uint8_t* msbBuffer) const {
+  display.copyGrayscaleMsbBuffers(msbBuffer ? msbBuffer : frameBuffer);
+}
 
 void GfxRenderer::displayGrayBuffer(const bool turnOffScreen) const {
   display.displayGrayBuffer(fadingFix || turnOffScreen);

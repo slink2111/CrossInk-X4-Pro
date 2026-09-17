@@ -127,4 +127,124 @@ bool runTiledGrayscalePass(GfxRenderer& renderer, const Page& page, const int fo
   return true;
 }
 
+bool runPrerenderedGrayscalePass(GfxRenderer& renderer, const Page& page, const int fontId, const int marginLeft,
+                                 const int marginTop, const bool foregroundBlack, const bool needsTextGrayscale,
+                                 const bool needsImageGrayscale, uint8_t* scratch, const size_t scratchSize,
+                                 BaseDisplayFn baseDisplayFn, void* context) {
+  if (!needsTextGrayscale && !needsImageGrayscale) {
+    return false;
+  }
+
+  const int displayHeight = renderer.getDisplayHeight();
+  const int displayWidthBytes = renderer.getDisplayWidthBytes();
+  const size_t planeBytes = static_cast<size_t>(displayWidthBytes) * displayHeight;
+
+  const auto renderPlaneToBuffer = [&](const GfxRenderer::RenderMode mode, uint8_t* buffer) {
+    renderer.setRenderMode(mode);
+    renderer.beginStripTarget(buffer, 0, displayHeight);
+    renderer.clearScreen(0x00);
+    if (needsTextGrayscale) {
+      page.render(renderer, fontId, marginLeft, marginTop, foregroundBlack);
+    } else {
+      page.renderImages(renderer, fontId, marginLeft, marginTop);
+    }
+    renderer.endStripTarget();
+  };
+
+  constexpr size_t PLANE_BUFFER_FREE_HEAP_RESERVE = 60000;
+  constexpr size_t PLANE_BUFFER_MAX_ALLOC_RESERVE = 16 * 1024;
+  const bool usePsramPlanes = psramHeapAvailable();
+  const auto planeBufferFits = [planeBytes, usePsramPlanes] {
+    if (usePsramPlanes) {
+      constexpr size_t PSRAM_PLANE_RESERVE = 128 * 1024;
+      const auto psram = MemoryBudget::psramSnapshot();
+      return psram.freeHeap >= planeBytes + PSRAM_PLANE_RESERVE && psram.maxAllocHeap >= planeBytes;
+    }
+    return ESP.getFreeHeap() >= planeBytes + PLANE_BUFFER_FREE_HEAP_RESERVE &&
+           ESP.getMaxAllocHeap() >= planeBytes;
+  };
+  const auto allocatePlane = [planeBytes, usePsramPlanes] {
+    return usePsramPlanes ? makePsramByteBufferNoThrow(planeBytes) : makeHeapByteBufferNoThrow(planeBytes);
+  };
+  auto lsbPlaneBuf = planeBufferFits() ? allocatePlane() : HeapByteBuffer{};
+  auto msbPlaneBuf = (lsbPlaneBuf && planeBufferFits()) ? allocatePlane() : HeapByteBuffer{};
+
+  if (lsbPlaneBuf) {
+    if (usePsramPlanes) {
+      LOG_INF("EPS", "Prerendering PSRAM grayscale planes: bytes=%u count=%u", static_cast<unsigned>(planeBytes),
+              msbPlaneBuf ? 2U : 1U);
+    }
+    // 1. Prerender LSB plane into memory buffer
+    renderPlaneToBuffer(GfxRenderer::GRAYSCALE_LSB, lsbPlaneBuf.get());
+    if (msbPlaneBuf) {
+      // 2. Prerender MSB plane into memory buffer
+      renderPlaneToBuffer(GfxRenderer::GRAYSCALE_MSB, msbPlaneBuf.get());
+    }
+
+    // 3. All planes are now ready in memory. Trigger the base display update
+    if (baseDisplayFn) {
+      baseDisplayFn(context);
+    }
+
+    // 4. Immediately stream the grayscale planes to the display controller
+    if (renderer.supportsStripGrayscale()) {
+      renderer.writeGrayscalePlaneStrip(true, lsbPlaneBuf.get(), 0, displayHeight);
+      if (msbPlaneBuf) {
+        renderer.writeGrayscalePlaneStrip(false, msbPlaneBuf.get(), 0, displayHeight);
+      } else {
+        renderPlaneToBuffer(GfxRenderer::GRAYSCALE_MSB, lsbPlaneBuf.get());
+        renderer.writeGrayscalePlaneStrip(false, lsbPlaneBuf.get(), 0, displayHeight);
+      }
+    } else {
+      if (msbPlaneBuf) {
+        renderer.copyGrayscaleBuffers(lsbPlaneBuf.get(), msbPlaneBuf.get());
+      } else {
+        renderer.copyGrayscaleLsbBuffers(lsbPlaneBuf.get());
+        renderPlaneToBuffer(GfxRenderer::GRAYSCALE_MSB, lsbPlaneBuf.get());
+        renderer.copyGrayscaleMsbBuffers(lsbPlaneBuf.get());
+      }
+    }
+
+    // 5. Activate grayscale overlay
+    renderer.setRenderMode(GfxRenderer::BW);
+    renderer.displayGrayBuffer();
+    renderer.cleanupGrayscaleWithFrameBuffer();
+    return true;
+  }
+
+  // Low-memory fallback (e.g. C3 without PSRAM): perform base display first, then stream strips
+  if (baseDisplayFn) {
+    baseDisplayFn(context);
+  }
+
+  const size_t requiredScratchSize = static_cast<size_t>(displayWidthBytes) * GRAYSCALE_STRIP_ROWS;
+  if (!scratch || scratchSize < requiredScratchSize || !renderer.supportsStripGrayscale()) {
+    return false;
+  }
+
+  const auto renderPlane = [&](const GfxRenderer::RenderMode mode, const bool lsbPlane) {
+    renderer.setRenderMode(mode);
+    for (int y = 0; y < displayHeight; y += GRAYSCALE_STRIP_ROWS) {
+      const int rows = std::min(GRAYSCALE_STRIP_ROWS, displayHeight - y);
+      renderer.beginStripTarget(scratch, y, rows);
+      renderer.clearScreen(0x00);
+      if (needsTextGrayscale) {
+        page.render(renderer, fontId, marginLeft, marginTop, foregroundBlack);
+      } else {
+        page.renderImages(renderer, fontId, marginLeft, marginTop);
+      }
+      renderer.endStripTarget();
+      renderer.writeGrayscalePlaneStrip(lsbPlane, scratch, y, rows);
+    }
+  };
+
+  renderPlane(GfxRenderer::GRAYSCALE_LSB, true);
+  renderPlane(GfxRenderer::GRAYSCALE_MSB, false);
+
+  renderer.setRenderMode(GfxRenderer::BW);
+  renderer.displayGrayBuffer();
+  renderer.cleanupGrayscaleWithFrameBuffer();
+  return true;
+}
+
 }  // namespace EpubGrayscale

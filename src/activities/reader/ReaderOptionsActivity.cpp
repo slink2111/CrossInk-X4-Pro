@@ -470,7 +470,13 @@ void ReaderOptionsActivity::toggleCurrentSetting() {
 
   if (setting.type == SettingType::TOGGLE && setting.valuePtr != nullptr) {
     const bool cur = SETTINGS.*(setting.valuePtr);
-    SETTINGS.*(setting.valuePtr) = !cur;
+    const bool next = !cur;
+    SETTINGS.*(setting.valuePtr) = next;
+    if (setting.valuePtr == &CrossPointSettings::textAntiAliasing && next) {
+      SETTINGS.textAntiAliasing1Bit = 0;
+    } else if (setting.valuePtr == &CrossPointSettings::textAntiAliasing1Bit && next) {
+      SETTINGS.textAntiAliasing = 0;
+    }
     settingsDirty = true;
   } else if (setting.type == SettingType::ENUM && setting.valuePtr != nullptr) {
     if (currentSettingUsesOptionMenu(setting)) {

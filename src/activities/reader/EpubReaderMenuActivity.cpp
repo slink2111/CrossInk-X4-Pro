@@ -75,6 +75,7 @@ struct ReaderLayoutSettingsSnapshot {
   uint8_t embeddedStyle;
   uint8_t hyphenationEnabled;
   uint8_t textAntiAliasing;
+  uint8_t textAntiAliasing1Bit;
   uint8_t imageRendering;
   uint8_t extraParagraphSpacing;
   uint8_t forceParagraphIndents;
@@ -101,6 +102,7 @@ ReaderLayoutSettingsSnapshot captureReaderLayoutSettings() {
       SETTINGS.embeddedStyle,
       SETTINGS.hyphenationEnabled,
       SETTINGS.textAntiAliasing,
+      SETTINGS.textAntiAliasing1Bit,
       SETTINGS.imageRendering,
       SETTINGS.extraParagraphSpacing,
       SETTINGS.forceParagraphIndents,
@@ -117,7 +119,8 @@ ReaderSettingsChangeMask classifyReaderSettingsChange(const ReaderLayoutSettings
                                                       const ReaderLayoutSettingsSnapshot& after) {
   ReaderSettingsChangeMask changeMask = ReaderSettingsChangeMask::None;
 
-  if (before.textAntiAliasing != after.textAntiAliasing) {
+  if (before.textAntiAliasing != after.textAntiAliasing ||
+      before.textAntiAliasing1Bit != after.textAntiAliasing1Bit) {
     changeMask = changeMask | ReaderSettingsChangeMask::NonLayout;
   }
   if (before.orientation != after.orientation) {

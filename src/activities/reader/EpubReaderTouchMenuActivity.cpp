@@ -432,6 +432,7 @@ ReaderSettingsDraft EpubReaderTouchMenuActivity::captureSettings() {
   value.orientation = SETTINGS.orientation;
   value.paragraphAlignment = SETTINGS.paragraphAlignment;
   value.textAntiAliasing = SETTINGS.textAntiAliasing;
+  value.textAntiAliasing1Bit = SETTINGS.textAntiAliasing1Bit;
   value.focusReadingEnabled = SETTINGS.focusReadingEnabled;
   value.guideReadingEnabled = SETTINGS.guideReadingEnabled;
   value.hyphenationEnabled = SETTINGS.hyphenationEnabled;
@@ -458,6 +459,7 @@ void EpubReaderTouchMenuActivity::applySettings(const ReaderSettingsDraft& value
   SETTINGS.orientation = value.orientation;
   SETTINGS.paragraphAlignment = value.paragraphAlignment;
   SETTINGS.textAntiAliasing = value.textAntiAliasing;
+  SETTINGS.textAntiAliasing1Bit = value.textAntiAliasing1Bit;
   SETTINGS.focusReadingEnabled = value.focusReadingEnabled;
   SETTINGS.guideReadingEnabled = value.guideReadingEnabled;
   SETTINGS.hyphenationEnabled = value.hyphenationEnabled;
@@ -1234,6 +1236,7 @@ void EpubReaderTouchMenuActivity::activateRow(const RowId row) {
       }
       return;
     case RowId::TextAa:
+    case RowId::TextAa1Bit:
     case RowId::Focus:
     case RowId::GuideDots:
     case RowId::Hyphenation:
@@ -1303,6 +1306,15 @@ void EpubReaderTouchMenuActivity::toggleSetting(const RowId row) {
   switch (row) {
     case RowId::TextAa:
       draft.textAntiAliasing = !draft.textAntiAliasing;
+      if (draft.textAntiAliasing) {
+        draft.textAntiAliasing1Bit = 0;
+      }
+      break;
+    case RowId::TextAa1Bit:
+      draft.textAntiAliasing1Bit = !draft.textAntiAliasing1Bit;
+      if (draft.textAntiAliasing1Bit) {
+        draft.textAntiAliasing = 0;
+      }
       break;
     case RowId::Focus:
       draft.focusReadingEnabled = !draft.focusReadingEnabled;
@@ -1328,7 +1340,7 @@ void EpubReaderTouchMenuActivity::toggleSetting(const RowId row) {
     default:
       return;
   }
-  if (row == RowId::TextAa) {
+  if (row == RowId::TextAa || row == RowId::TextAa1Bit) {
     // Anti-aliasing changes pixels only. Rebuilding the EPUB section here
     // makes the in-drawer preview appear to zoom while the page reflows.
     markSettingChanged(ReaderSettingsChangeMask::Preview | ReaderSettingsChangeMask::NonLayout);
@@ -1733,6 +1745,8 @@ bool EpubReaderTouchMenuActivity::renderPreview() {
                           previewFontId);  // Scan the page text before loading the selected font's glyphs.
     scope.endScanAndPrewarm();
   }
+  const ReaderUtils::TextDitheringScope ditheringScope(
+      renderer, previewSettings.textAntiAliasing1Bit && ReaderUtils::readerForegroundBlack());
   renderPreviewContents(previewSettings, previewFontId);
   return true;
 }
@@ -1895,6 +1909,8 @@ const char* EpubReaderTouchMenuActivity::rowLabel(const RowId row) const {
       return tr(STR_SPACING);
     case RowId::TextAa:
       return tr(STR_TEXT_AA);
+    case RowId::TextAa1Bit:
+      return tr(STR_TEXT_AA_1BIT);
     case RowId::Focus:
       return tr(STR_FOCUS_READING);
     case RowId::GuideDots:
@@ -2028,6 +2044,7 @@ const char* EpubReaderTouchMenuActivity::rowValue(const RowId row, char* buffer,
 bool EpubReaderTouchMenuActivity::rowIsToggle(const RowId row) const {
   switch (row) {
     case RowId::TextAa:
+    case RowId::TextAa1Bit:
     case RowId::Focus:
     case RowId::GuideDots:
     case RowId::Hyphenation:
@@ -2066,6 +2083,8 @@ bool EpubReaderTouchMenuActivity::rowToggleValue(const RowId row) const {
   switch (row) {
     case RowId::TextAa:
       return draft.textAntiAliasing;
+    case RowId::TextAa1Bit:
+      return draft.textAntiAliasing1Bit;
     case RowId::Focus:
       return draft.focusReadingEnabled;
     case RowId::GuideDots:

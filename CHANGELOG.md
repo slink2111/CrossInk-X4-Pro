@@ -1,4 +1,4 @@
-## [v1.5.1] - 2026-09-10
+## [v1.5.1] - 2026-09-17
 
 ### Added
 
@@ -11,6 +11,7 @@
 - Clippings from dictionary lookups on touch devices, plus selection of text inside EPUB tables.
 - Clock display option in the bottom reader status bar, configurable via the Customize Status Bar settings menu.
 - Greek and polytonic Greek UTF-8 character support in the built-in Inter UI fonts for book titles, file listings, and menus.
+- "1bit Text Anti-Aliasing" toggle switch in reader settings menus, allowing selection between hardware 2-pass grayscale anti-aliasing, instantaneous 1-bit font edge dithering, or turning both off for pure black-and-white rendering.
 
 ### Changed
 
@@ -31,6 +32,7 @@
 ### Fixed
 
 - Touch reader Screen Margins drawer pane displays the scrollbar indicator over the full content area instead of an empty sliver.
+- Text anti-aliasing in reader mode uses 1-bit spatial edge dithering to render smooth font curves directly in a single, instantaneous display refresh, completely eliminating two-stage flashing and rendering lag.
 - Clipping highlights stay aligned after font changes, retain multi-paragraph text, and remain readable in Dark Mode. Selection stays on its final page, and browsing saved clippings responds reliably.
 - Dictionary lookup respects landscape controls and selected fonts, handles repeated lookups more reliably, and returns to the reader cleanly when dismissed.
 - EPUB tables retain column widths and wrap long labels; mixed-direction text, Arabic/Persian shaping, ruby annotations, and footnote styling render correctly.

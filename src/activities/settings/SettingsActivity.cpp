@@ -1019,7 +1019,13 @@ void SettingsActivity::toggleCurrentSetting() {
   if (setting.type == SettingType::TOGGLE && setting.valuePtr != nullptr) {
     // Toggle the boolean value using the member pointer
     const bool currentValue = SETTINGS.*(setting.valuePtr);
-    SETTINGS.*(setting.valuePtr) = !currentValue;
+    const bool nextValue = !currentValue;
+    SETTINGS.*(setting.valuePtr) = nextValue;
+    if (setting.valuePtr == &CrossPointSettings::textAntiAliasing && nextValue) {
+      SETTINGS.textAntiAliasing1Bit = 0;
+    } else if (setting.valuePtr == &CrossPointSettings::textAntiAliasing1Bit && nextValue) {
+      SETTINGS.textAntiAliasing = 0;
+    }
   } else if (setting.type == SettingType::ENUM && setting.valuePtr != nullptr) {
     const uint8_t currentValue = SETTINGS.*(setting.valuePtr);
     const uint8_t currentIndex = enumDisplayIndexForRawValue(setting, currentValue);

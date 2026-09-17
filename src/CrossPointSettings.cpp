@@ -586,6 +586,11 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc) {
     this->*(info.valuePtr) = value;
   }
 
+  if (textAntiAliasing && textAntiAliasing1Bit) {
+    textAntiAliasing1Bit = 0;
+    needsResave = true;
+  }
+
   // The old gesture setting controlled both directions. Preserve it on upgrade.
   if (doc["previousPageGesture"].isNull()) {
     previousPageGesture = pageTurnGesture;

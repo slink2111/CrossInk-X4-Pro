@@ -843,14 +843,16 @@ void TxtReaderActivity::renderPage() {
   renderLines();  // scan pass — text accumulated, no drawing
   scope.endScanAndPrewarm();
 
+  const ReaderUtils::TextDitheringScope ditheringScope(
+      renderer, SETTINGS.textAntiAliasing1Bit && ReaderUtils::readerForegroundBlack());
+
   // BW rendering
   renderLines();
   renderStatusBar();
 
-
   ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh);
 
-  if (SETTINGS.textAntiAliasing) {
+  if (SETTINGS.textAntiAliasing && ReaderUtils::readerForegroundBlack()) {
     ReaderUtils::renderAntiAliased(renderer, [&renderLines]() { renderLines(); });
   }
   // scope destructor clears font cache via FontCacheManager
