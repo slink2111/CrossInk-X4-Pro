@@ -57,6 +57,8 @@ def _unescape_yaml_value(raw: str, filepath: str = "", line_num: int = 0) -> str
                 result.append("\\")
             elif nxt == '"':
                 result.append('"')
+            elif nxt == "'":
+                result.append("'")
             elif nxt == "n":
                 result.append("\n")
             else:
@@ -71,7 +73,7 @@ def _unescape_yaml_value(raw: str, filepath: str = "", line_num: int = 0) -> str
 def parse_yaml_file(filepath: str) -> Dict[str, str]:
     """
     Parse a simple YAML file of the form:
-        key: "value"
+        key: "value"  or  key: 'value'
 
     Only supports flat key-value pairs with quoted string values.
     Aborts on formatting errors.
@@ -84,7 +86,7 @@ def parse_yaml_file(filepath: str) -> Dict[str, str]:
             if not line.strip():
                 continue
 
-            match = re.match(r'^([A-Za-z_][A-Za-z0-9_]*)\s*:\s*"(.*)"$', line)
+            match = re.match(r'^([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(["\'])(.*)\2$', line)
             if not match:
                 raise ValueError(
                     f"{filepath}:{line_num}: bad format: {line!r}\n"
@@ -92,7 +94,7 @@ def parse_yaml_file(filepath: str) -> Dict[str, str]:
                 )
 
             key = match.group(1)
-            raw_value = match.group(2)
+            raw_value = match.group(3)
 
             # Un-escape: process character by character to handle
             # \\, \", and \n sequences correctly
