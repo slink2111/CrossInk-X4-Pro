@@ -1113,7 +1113,7 @@ inline std::vector<SettingInfo> buildBookReaderSettingsParentList(const std::vec
 
 inline std::vector<SettingInfo> buildReaderFontSettingsList(const std::vector<SettingInfo>& allSettings) {
   std::vector<SettingInfo> settings;
-  settings.reserve(10);
+  settings.reserve(11);
   addSettingByName(settings, allSettings, StrId::STR_FONT_FAMILY);
   addSettingByName(settings, allSettings, StrId::STR_FONT_SIZE);
   addSettingByName(settings, allSettings, StrId::STR_DICTIONARY_FONT);
@@ -1121,6 +1121,7 @@ inline std::vector<SettingInfo> buildReaderFontSettingsList(const std::vector<Se
   addSettingByName(settings, allSettings, StrId::STR_LINE_SPACING);
   addSettingByName(settings, allSettings, StrId::STR_WORD_SPACING);
   addSettingByName(settings, allSettings, StrId::STR_TEXT_AA);
+  addSettingByName(settings, allSettings, StrId::STR_TEXT_AA_1BIT);
   settings.push_back(SettingInfo::Action(StrId::STR_DOWNLOAD_FONTS, SettingAction::DownloadFonts));
   addSettingByName(settings, allSettings, StrId::STR_SD_FONT_SIZE_RANGE);
   return settings;
