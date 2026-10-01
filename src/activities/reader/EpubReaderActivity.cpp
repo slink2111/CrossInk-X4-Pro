@@ -3446,6 +3446,9 @@ void EpubReaderActivity::openWordSelect(bool framebufferContainsPage, int initia
       return;
     }
 
+    pendingPreRender = false;
+    restoreCurrentPageToBufferIfPreRendered();
+
     pageForLookup = section->loadPageFromSectionFile();
     if (!pageForLookup) {
       requestUpdate();
