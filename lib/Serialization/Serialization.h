@@ -52,30 +52,74 @@ static bool tryWriteString(FsFile& file, const std::string& s) {
   return tryWritePod(file, len) && (len == 0 || file.write(reinterpret_cast<const uint8_t*>(s.data()), len) == len);
 }
 
-static void readString(std::istream& is, std::string& s) {
-  uint32_t len;
-  readPod(is, len);
-  s.resize(len);
-  is.read(&s[0], len);
+constexpr size_t COPY_CHUNK_BYTES = 512;
+[[maybe_unused]] static bool copyBytes(FsFile& in, FsFile& out, uint32_t bytes) {
+  uint8_t chunk[COPY_CHUNK_BYTES];
+  while (bytes > 0) {
+    const size_t want = bytes < COPY_CHUNK_BYTES ? static_cast<size_t>(bytes) : COPY_CHUNK_BYTES;
+    if (in.read(chunk, want) != static_cast<int>(want)) return false;
+    if (out.write(chunk, want) != want) return false;
+    bytes -= static_cast<uint32_t>(want);
+  }
+  return true;
 }
 
-static void readString(FsFile& file, std::string& s) {
-  uint32_t len;
-  readPod(file, len);
+constexpr uint32_t MAX_STRING_LENGTH = 4096;
+
+[[maybe_unused]] static bool readString(std::istream& is, std::string& s) {
+  uint32_t len = 0;
+  readPod(is, len);
+  if (!is) {
+    s.clear();
+    return false;
+  }
+  if (len > MAX_STRING_LENGTH) {
+    is.seekg(len, std::ios::cur);  // skip payload to keep stream aligned
+    s.clear();
+    return false;
+  }
   s.resize(len);
-  file.read(&s[0], len);
+  is.read(&s[0], len);
+  return static_cast<bool>(is);
+}
+
+[[maybe_unused]] static bool readString(FsFile& file, std::string& s) {
+  uint32_t len = 0;
+  if (file.read(reinterpret_cast<uint8_t*>(&len), sizeof(len)) != sizeof(len)) {
+    s.clear();
+    return false;
+  }
+  if (len > MAX_STRING_LENGTH) {
+    file.seekCur(static_cast<int64_t>(len));  // skip payload to keep file position aligned
+    s.clear();
+    return false;
+  }
+  s.resize(len);
+  const int readLen = static_cast<int>(len);
+  if (readLen > 0 && file.read(reinterpret_cast<uint8_t*>(&s[0]), readLen) != readLen) {
+    s.clear();
+    return false;
+  }
+  return true;
 }
 
 static bool tryReadString(FsFile& file, std::string& s) {
   uint32_t len = 0;
   if (!tryReadPod(file, len)) {
+    s.clear();
     return false;
   }
-  if (static_cast<size_t>(len) > s.max_size() || len > static_cast<uint32_t>(std::numeric_limits<int>::max())) {
+  if (len > MAX_STRING_LENGTH || static_cast<size_t>(len) > s.max_size() ||
+      len > static_cast<uint32_t>(std::numeric_limits<int>::max())) {
+    s.clear();
     return false;
   }
   s.resize(len);
   const int readLen = static_cast<int>(len);
-  return len == 0 || file.read(&s[0], readLen) == readLen;
+  if (readLen > 0 && file.read(reinterpret_cast<uint8_t*>(&s[0]), readLen) != readLen) {
+    s.clear();
+    return false;
+  }
+  return true;
 }
 }  // namespace serialization

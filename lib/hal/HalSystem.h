@@ -17,4 +17,5 @@ void clearPanic();
 
 std::string getPanicInfo(bool full = false);
 bool isRebootFromPanic();
+void feedWatchdog();
 }  // namespace HalSystem

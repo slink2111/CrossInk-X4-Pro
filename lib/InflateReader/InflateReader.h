@@ -3,35 +3,98 @@
 #include <uzlib.h>
 
 #include <cstddef>
-#include <cstdint>
 
-// Small one-shot deflate decompressor wrapping uzlib.
+// Return value for readAtMost().
+enum class InflateStatus {
+  Ok,     // Output buffer full; more compressed data remains.
+  Done,   // Stream ended cleanly (TINF_DONE). produced may be < maxLen.
+  Error,  // Decompression failed.
+};
+
+// Streaming deflate decompressor wrapping uzlib.
 //
-// Retained only for FontDecompressor's tiny flash-resident group
-// decompressions, where uzlib's ~1KB state beats tinfl's ~11KB on the
-// OOM-sensitive render path. All throughput paths (zip entries, PNG IDAT) use
-// InflateStream (lib/miniz), which decodes several times faster.
+// Two modes:
+//   init(false)  — one-shot: input is a contiguous buffer, call read() once.
+//   init(true)   — streaming: allocates a 32KB ring buffer for back-references
+//                  across multiple read() / readAtMost() calls.
+//
+// Streaming callback pattern:
+//   The uzlib read callback receives a `struct uzlib_uncomp*` with no separate
+//   context pointer. To attach context, make InflateReader the *first member* of
+//   your context struct, then cast inside the callback:
+//
+//     struct MyCtx {
+//       InflateReader reader;   // must be first
+//       FsFile* file;
+//       // ...
+//     };
+//     static int myCb(struct uzlib_uncomp* u) {
+//       MyCtx* ctx = reinterpret_cast<MyCtx*>(u);   // valid: reader.decomp is at offset 0
+//       // ... fill u->source / u->source_limit, return first byte
+//     }
+//     MyCtx ctx;
+//     ctx.reader.init(true);
+//     ctx.reader.setReadCallback(myCb);
+//
 class InflateReader {
  public:
   InflateReader() = default;
+  ~InflateReader();
+
   InflateReader(const InflateReader&) = delete;
   InflateReader& operator=(const InflateReader&) = delete;
 
-  // Initialize one-shot mode. The destination buffer holds the entire output,
-  // so back-references resolve inside it without a separate 32KB dictionary.
-  void init();
+  // Initialise decompressor. streaming=true allocates the back-reference ring buffer
+  // needed when read() or readAtMost() will be called multiple times.
+  // expectedOutputSize (streaming only): total uncompressed size of the stream when
+  // known, 0 when unknown. A deflate back-reference can never reach further back than
+  // the bytes produced so far, so the ring is sized min(32 KB, expectedOutputSize) —
+  // a 3 KB chapter then costs a 3 KB ring instead of 32 KB. Pass 0 for the full window.
+  // Returns false only in streaming mode if the ring buffer allocation fails.
+  bool init(bool streaming = false, size_t expectedOutputSize = 0);
 
-  // Requires len + 1 bytes of destination capacity to reject extra output.
-  bool readExact(uint8_t* dest, size_t len);
+  // Streaming init over a CALLER-OWNED ring buffer (e.g. carved from a build
+  // arena): no allocation here, no free in deinit(). ringSize should come from
+  // ringSizeFor() so the caller can budget before allocating.
+  bool initWithExternalRing(uint8_t* ring, size_t ringSize);
+
+  // Ring size init(true, expectedOutputSize) would allocate — lets an external
+  // allocator reserve exactly the right amount (min(32 KB, max(size, 512))).
+  static size_t ringSizeFor(size_t expectedOutputSize);
+
+  // Release the ring buffer (if owned) and reset internal state.
+  void deinit();
 
   // Set the entire compressed input as a contiguous memory buffer.
-  // Used before the single read() call.
+  // Used in one-shot mode; not needed when a read callback is set.
   void setSource(const uint8_t* src, size_t len);
+
+  // Set a uzlib-compatible read callback for streaming input.
+  // See class-level comment for the expected callback/context struct pattern.
+  void setReadCallback(int (*cb)(uzlib_uncomp*));
+
+  // Consume the 2-byte zlib header (CMF + FLG) from the input stream.
+  // Call this once before the first read() when input is zlib-wrapped (e.g. PNG IDAT).
+  void skipZlibHeader();
 
   // Decompress exactly len bytes into dest.
   // Returns false if the stream ends before producing len bytes, or on error.
   bool read(uint8_t* dest, size_t len);
+  bool readExact(uint8_t* dest, size_t len) { return read(dest, len); }
+
+  // Decompress up to maxLen bytes into dest.
+  // Sets *produced to the number of bytes written.
+  // Returns Done when the stream ends cleanly, Ok when there is more to read,
+  // and Error on failure.
+  InflateStatus readAtMost(uint8_t* dest, size_t maxLen, size_t* produced);
+
+  // Returns a pointer to the underlying TINF_DATA.
+  // Useful for advanced streaming setups where the callback needs access to the
+  // uzlib struct directly (e.g. updating source/source_limit).
+  uzlib_uncomp* raw() { return &decomp; }
 
  private:
   uzlib_uncomp decomp = {};
+  uint8_t* ringBuffer = nullptr;
+  bool ownsRing_ = true;
 };

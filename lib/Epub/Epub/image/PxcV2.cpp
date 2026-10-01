@@ -34,7 +34,7 @@ bool PxcV2::pixels() {
   else if (codec == 1) {
     ws.inflate.init();
     ws.inflate.setSource(ws.encoded, encodedLength);
-    if (!ws.inflate.readExact(ws.decoded, rawLength)) return false;
+    if (!ws.inflate.read(ws.decoded, rawLength)) return false;
   } else {
     size_t i = 0, j = 0;
     while (i < encodedLength) {

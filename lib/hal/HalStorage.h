@@ -66,6 +66,9 @@ class HalStorage {
   bool openFileForWrite(const char* moduleName, const char* path, HalFile& file);
   bool openFileForWrite(const char* moduleName, const std::string& path, HalFile& file);
   bool openFileForWrite(const char* moduleName, const String& path, HalFile& file);
+  bool openFileForUpdate(const char* moduleName, const char* path, HalFile& file);
+  bool openFileForUpdate(const char* moduleName, const std::string& path, HalFile& file);
+  bool openFileForUpdate(const char* moduleName, const String& path, HalFile& file);
   bool removeDir(const char* path);
 
   static HalStorage& getInstance() { return instance; }

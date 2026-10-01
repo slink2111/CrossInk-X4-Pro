@@ -532,6 +532,110 @@ void CssParser::parseDeclarationIntoStyle(std::string_view decl, CssStyle& style
       style.pageBreakAfter = pageBreakAfter;
       style.defined.pageBreakAfter = 1;
     }
+  } else if (iequalsAscii(name, "line-height")) {
+    const std::string_view val = value;
+    if (val != "normal" && val != "inherit" && val != "initial" && val != "unset") {
+      static constexpr float kBase = 1.5f;
+      float parsed = 0.0f;
+      bool ok = false;
+      if (!val.empty() && val.back() == '%') {
+        const char* p = val.data();
+        char* end = nullptr;
+        float v = std::strtof(p, &end);
+        if (end != p) {
+          parsed = v / 100.0f / kBase;
+          ok = true;
+        }
+      } else if (val.size() > 2 && val.substr(val.size() - 2) == "em") {
+        const char* p = val.data();
+        char* end = nullptr;
+        float v = std::strtof(p, &end);
+        if (end != p) {
+          parsed = v / kBase;
+          ok = true;
+        }
+      } else {
+        const char* p = val.data();
+        char* end = nullptr;
+        float v = std::strtof(p, &end);
+        if (end != p) {
+          parsed = v / kBase;
+          ok = true;
+        }
+      }
+      if (ok && parsed > 0.0f) {
+        style.lineHeightMultiplier = std::max(0.7f, std::min(2.0f, parsed));
+        style.defined.lineHeight = 1;
+      }
+    }
+  } else if (iequalsAscii(name, "font-size")) {
+    const std::string_view val = value;
+    if (val != "inherit" && val != "initial" && val != "unset") {
+      float parsed = 0.0f;
+      bool ok = false;
+      if (!val.empty() && val.back() == '%') {
+        const char* p = val.data();
+        char* end = nullptr;
+        float v = std::strtof(p, &end);
+        if (end != p) {
+          parsed = v / 100.0f;
+          ok = true;
+        }
+      } else if (val.size() > 3 && val.substr(val.size() - 3) == "rem") {
+        const char* p = val.data();
+        char* end = nullptr;
+        float v = std::strtof(p, &end);
+        if (end != p) {
+          parsed = v;
+          ok = true;
+        }
+      } else if (val.size() > 2 && val.substr(val.size() - 2) == "em") {
+        const char* p = val.data();
+        char* end = nullptr;
+        float v = std::strtof(p, &end);
+        if (end != p) {
+          parsed = v;
+          ok = true;
+        }
+      } else if (val.size() > 2 && val.substr(val.size() - 2) == "pt") {
+        const char* p = val.data();
+        char* end = nullptr;
+        float v = std::strtof(p, &end);
+        if (end != p) {
+          parsed = v / 12.0f;
+          ok = true;
+        }
+      } else if (val.size() > 2 && val.substr(val.size() - 2) == "px") {
+        const char* p = val.data();
+        char* end = nullptr;
+        float v = std::strtof(p, &end);
+        if (end != p) {
+          parsed = v / 16.0f;
+          ok = true;
+        }
+      } else {
+        if (val == "xx-small") {
+          parsed = 0.6f;
+        } else if (val == "x-small") {
+          parsed = 0.75f;
+        } else if (val == "small" || val == "smaller") {
+          parsed = 0.8f;
+        } else if (val == "medium") {
+          parsed = 1.0f;
+        } else if (val == "large" || val == "larger") {
+          parsed = 1.2f;
+        } else if (val == "x-large") {
+          parsed = 1.4f;
+        } else if (val == "xx-large") {
+          parsed = 1.6f;
+        }
+        ok = parsed > 0.0f;
+      }
+      if (ok && parsed > 0.0f) {
+        style.fontSizeMultiplier = parsed;
+        style.defined.fontSizeMultiplier = 1;
+      }
+    }
   }
 }
 

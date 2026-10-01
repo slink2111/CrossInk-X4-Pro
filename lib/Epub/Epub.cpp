@@ -1452,9 +1452,20 @@ bool Epub::extractItemToFile(const std::string& itemHref, const std::string& des
   return success;
 }
 
+bool Epub::extractItemToFile(const std::string& itemHref, const std::string& destPath, BuildArena* arena) const {
+  return extractItemToFile(itemHref, destPath, 4096);
+}
+
 bool Epub::getItemSize(const std::string& itemHref, size_t* size) const {
   const std::string path = FsHelpers::normalisePath(itemHref);
   return ZipFile(filepath).getInflatedFileSize(path.c_str(), size);
+}
+
+bool Epub::getStoredItemRange(const std::string& itemHref, uint32_t* offset, uint32_t* size) const {
+  if (!offset || !size) return false;
+  const std::string path = FsHelpers::normalisePath(itemHref);
+  ZipFile zip(filepath);
+  return zip.getStoredEntryRange(path.c_str(), offset, size);
 }
 
 namespace {

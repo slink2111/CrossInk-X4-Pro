@@ -77,13 +77,14 @@ std::unique_ptr<PageLine> PageLine::deserialize(FsFile& file) {
 void PageImage::render(GfxRenderer& renderer, const int fontId, const int xOffset, const int yOffset,
                        const bool foregroundBlack) {
   (void)fontId;
-  // Images don't use fontId for text rendering
-  imageBlock->render(renderer, xPos + xOffset, yPos + yOffset, foregroundBlack);
+  (void)foregroundBlack;
+  imageBlock->render(renderer, xPos + xOffset, yPos + yOffset, /*forceLoad=*/true, /*monochromeOutput=*/true);
 }
 
 void PageImage::renderPlaceholder(GfxRenderer& renderer, const int xOffset, const int yOffset,
                                   const bool foregroundBlack) const {
-  imageBlock->renderPlaceholder(renderer, xPos + xOffset, yPos + yOffset, foregroundBlack);
+  (void)foregroundBlack;
+  imageBlock->renderPlaceholder(renderer, xPos + xOffset, yPos + yOffset, false);
 }
 
 bool PageImage::serialize(FsFile& file) {
@@ -177,6 +178,13 @@ bool TableFragmentCell::serialize(FsFile& file) const {
       return false;
     }
   }
+  bool hasImage = static_cast<bool>(image);
+  if (!serialization::tryWritePod(file, hasImage)) {
+    return false;
+  }
+  if (hasImage && !image->serialize(file)) {
+    return false;
+  }
   return true;
 }
 
@@ -202,6 +210,16 @@ bool TableFragmentCell::deserialize(FsFile& file, TableFragmentCell& outCell) {
       return false;
     }
     outCell.lines.push_back(std::move(line));
+  }
+  bool hasImage = false;
+  if (!serialization::tryReadPod(file, hasImage)) {
+    return false;
+  }
+  if (hasImage) {
+    outCell.image = ImageBlock::deserialize(file);
+    if (!outCell.image) {
+      return false;
+    }
   }
   return true;
 }
@@ -308,9 +326,13 @@ void PageTableFragment::render(GfxRenderer& renderer, const int fontId, const in
       const int cellTextHeight = row.height - cellPadding * 2;
 
       renderer.beginTextClip(cellTextX, cellTextY, cellTextWidth, cellTextHeight);
+      int currentLineY = cellTextY;
       for (size_t lineIndex = 0; lineIndex < cell.lines.size(); lineIndex++) {
-        cell.lines[lineIndex]->render(renderer, fontId, cellTextX, cellTextY + static_cast<int>(lineIndex) * lineHeight,
-                                      foregroundBlack);
+        cell.lines[lineIndex]->render(renderer, fontId, cellTextX, currentLineY, foregroundBlack);
+        currentLineY += lineHeight;
+      }
+      if (cell.image) {
+        cell.image->render(renderer, cellTextX, currentLineY, /*forceLoad=*/true, /*monochromeOutput=*/true);
       }
       renderer.endTextClip();
       logicalColumn = static_cast<uint8_t>(logicalColumn + span);

@@ -388,6 +388,40 @@ bool HalStorage::openFileForWrite(const char* moduleName, const String& path, Ha
   return openFileForWrite(moduleName, path.c_str(), file);
 }
 
+bool HalStorage::openFileForUpdate(const char* moduleName, const char* path, HalFile& file) {
+  file.close();
+  FsFile fsFile;
+  bool ok = false;
+  {
+    StorageLock lock;  // ensure thread safety for the duration of this function
+    fsFile = SDCard.open(path, O_RDWR);
+    ok = static_cast<bool>(fsFile);
+  }
+  if (!ok) {
+    LOG_ERR(moduleName, "Failed to open %s for update", path);
+    return false;
+  }
+  void* const storage = HalFile::allocateImplStorage();
+  HalFile::ImplPtr impl(storage ? ::new (storage) HalFile::Impl(std::move(fsFile)) : nullptr);
+  if (!impl) {
+    LOG_ERR(moduleName, "OOM: HalFile update wrapper for %s (%u free, %u max alloc)", path, ESP.getFreeHeap(),
+            ESP.getMaxAllocHeap());
+    StorageLock lock;
+    fsFile.close();
+    return false;
+  }
+  file = HalFile(std::move(impl));
+  return true;
+}
+
+bool HalStorage::openFileForUpdate(const char* moduleName, const std::string& path, HalFile& file) {
+  return openFileForUpdate(moduleName, path.c_str(), file);
+}
+
+bool HalStorage::openFileForUpdate(const char* moduleName, const String& path, HalFile& file) {
+  return openFileForUpdate(moduleName, path.c_str(), file);
+}
+
 bool HalStorage::removeDir(const char* path) {
   if (!path || path[0] == '\0') {
     return false;

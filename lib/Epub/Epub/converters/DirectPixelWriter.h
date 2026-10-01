@@ -4,6 +4,8 @@
 #include <HalDisplay.h>
 #include <stdint.h>
 
+#include <cassert>
+
 // Direct framebuffer writer that eliminates per-pixel overhead from the image
 // rendering hot path.  Pre-computes orientation transform as linear coefficients
 // and caches render-mode state so the inner loop is: one multiply, one add,
@@ -33,7 +35,7 @@ struct DirectPixelWriter {
   // Row-precomputed: the Y-dependent portion of the physical coords
   int rowPhyXBase, rowPhyYBase;
 
-  void init(GfxRenderer& renderer) {
+  void init(const GfxRenderer& renderer) {
     fb = renderer.getWriteTarget();
     originY = renderer.getWriteOriginY();
     clipRows = renderer.getWriteRows();
@@ -99,6 +101,49 @@ struct DirectPixelWriter {
     rowPhyYBase = phyYBase + logicalY * phyYStepY;
   }
 
+  // For the current row (set via beginRow), narrow [colStart, colEnd) to the
+  // columns whose pixels fall inside the active strip band. writePixel() would
+  // clip the rest anyway, but on a strip pass that is most of a full-page image
+  // (only ~one strip-height worth of columns survive in portrait); skipping them
+  // here avoids the per-pixel unpack+transform entirely. For full-frame passes
+  // (clipRows == panel height) the range is unchanged. xBase is the logical X of
+  // column 0; the band test mirrors writePixel(): 0 <= phyY - originY < clipRows.
+  //
+  // Ported from upstream DirectPixelWriter::bandColRange (crosspoint-reader#2230,
+  // commit d9bcef7a).
+  inline void bandColRange(int xBase, int width, int& colStart, int& colEnd) const {
+    // init() only ever sets phyYStepX to 0, +1, or -1; the +1/-1 solve below
+    // relies on that.
+    assert(phyYStepX == 0 || phyYStepX == 1 || phyYStepX == -1);
+    colStart = 0;
+    colEnd = width;
+    if (phyYStepX == 0) {
+      // phyY is constant across the row: the whole row is in-band or out.
+      const int sy = rowPhyYBase - originY;
+      if (static_cast<unsigned>(sy) >= static_cast<unsigned>(clipRows)) colEnd = 0;
+      return;
+    }
+    // phyY = rowPhyYBase + logicalX * phyYStepX (phyYStepX is +1 or -1).
+    // Solve originY <= phyY <= originY + clipRows - 1 for logicalX.
+    const int loY = originY;
+    const int hiY = originY + clipRows - 1;
+    int xLo, xHi;
+    if (phyYStepX > 0) {
+      xLo = loY - rowPhyYBase;
+      xHi = hiY - rowPhyYBase;
+    } else {
+      xLo = rowPhyYBase - hiY;
+      xHi = rowPhyYBase - loY;
+    }
+    const int cs = xLo - xBase;
+    const int ce = xHi - xBase + 1;  // exclusive
+    if (cs > colStart) colStart = cs;
+    if (ce < colEnd) colEnd = ce;
+    if (colStart < 0) colStart = 0;
+    if (colEnd > width) colEnd = width;
+    if (colStart > colEnd) colStart = colEnd;
+  }
+
   // Write a single 2-bit dithered pixel value to the framebuffer.
   // Must be called after beginRow() for the current row.
   // No bounds checking — caller guarantees coordinates are valid.
@@ -133,7 +178,11 @@ struct DirectPixelWriter {
     const int sy = phyY - originY;
     if (static_cast<unsigned>(sy) >= static_cast<unsigned>(clipRows)) return;
 
-    const uint16_t byteIndex = static_cast<uint16_t>(sy * displayWidthBytes + (phyX >> 3));
+    // Guard against negative or out-of-range phyX (e.g. from an image placed
+    // at a negative x offset or wider than the panel).
+    if (phyX < 0 || phyX >= static_cast<int>(displayWidthBytes) * 8) return;
+
+    const uint32_t byteIndex = static_cast<uint32_t>(sy) * displayWidthBytes + static_cast<uint32_t>(phyX >> 3);
     const uint8_t bitMask = 1 << (7 - (phyX & 7));
 
     if (state) {
@@ -147,43 +196,99 @@ struct DirectPixelWriter {
 // Direct cache writer that eliminates per-pixel overhead from PixelCache::setPixel().
 // Pre-computes row pointer so the inner loop is just byte index + bit manipulation.
 //
-// The cache buffer is a small streaming band (e.g. 16 rows), not the full image,
-// so a band-relative row/column that lands outside it would corrupt adjacent
-// heap. This writer therefore bounds-checks every access: beginRow() invalidates
-// the row when it falls outside the band, and writePixel() drops out-of-range
-// columns. This path only runs during the single decode that populates the
-// cache, never on the screen render hot path, so the checks are cheap.
+// The cache buffer is now a small streaming band (PixelCache::bandRows), not the
+// full image — the existing origin/width/height bounds checks below are what
+// keep band-relative writes from corrupting adjacent heap. Callers must pass
+// band-relative origin/extent (originY = config.y + cache.bandStart, height =
+// cache.bandRows) rather than full-image values; rows/columns outside the
+// current band are silently dropped here and re-derived on the next pass.
 struct DirectCacheWriter {
   uint8_t* buffer;
   int bytesPerRow;
-  int bandRows;
   int originX;
-  uint8_t* rowPtr;  // Pre-computed for current row; nullptr if row is out of band
+  int originY;
+  int width;
+  int height;
+  uint8_t* rowPtr;  // Pre-computed for current row
 
-  void init(uint8_t* cacheBuffer, int cacheBytesPerRow, int cacheBandRows, int cacheOriginX) {
+  void init(uint8_t* cacheBuffer, int cacheBytesPerRow, int cacheOriginX, int cacheOriginY, int cacheWidth,
+            int cacheHeight) {
     buffer = cacheBuffer;
     bytesPerRow = cacheBytesPerRow;
-    bandRows = cacheBandRows;
     originX = cacheOriginX;
+    originY = cacheOriginY;
+    width = cacheWidth;
+    height = cacheHeight;
     rowPtr = nullptr;
   }
 
-  // Call once per row before the column loop. Drops rows outside the band.
-  inline void beginRow(int screenY, int cacheOriginY) {
-    const int localRow = screenY - cacheOriginY;
-    rowPtr = (static_cast<unsigned>(localRow) < static_cast<unsigned>(bandRows))
-                 ? buffer + (size_t)localRow * bytesPerRow
-                 : nullptr;
+  // Call once per row before the column loop.
+  inline void beginRow(int screenY) {
+    const int localY = screenY - originY;
+    if (localY < 0 || localY >= height) {
+      rowPtr = nullptr;
+      return;
+    }
+    rowPtr = buffer + localY * bytesPerRow;
   }
 
-  // Write a 2-bit pixel value. Drops the write if the row is out of band or the
-  // column is out of range.
+  // Write a 2-bit pixel value. No bounds checking.
   inline void writePixel(int screenX, uint8_t value) const {
     if (!rowPtr) return;
     const int localX = screenX - originX;
-    const int byteIdx = localX >> 2;  // localX / 4
-    if (static_cast<unsigned>(byteIdx) >= static_cast<unsigned>(bytesPerRow)) return;
+    if (localX < 0 || localX >= width) return;
+    const int byteIdx = localX >> 2;            // localX / 4
     const int bitShift = 6 - (localX & 3) * 2;  // MSB first: pixel 0 at bits 6-7
     rowPtr[byteIdx] = (rowPtr[byteIdx] & ~(0x03 << bitShift)) | ((value & 0x03) << bitShift);
+  }
+};
+
+// Direct 8-bit grayscale writer, for panels that resolve more levels than the
+// dual-plane pipeline can express (HalDisplay::getGrayLevels() > 4).
+//
+// The 2-bit path exists because a KW controller selects its waveform from an
+// (old, new) bit pair, so four levels is the entire state space — see
+// Uc8279X4Driver::displayGray. A panel that keeps its own multi-bit frame buffer
+// has no such ceiling, and there the decoder's tone-mapped sample can be stored
+// whole rather than crushed to a quarter of its range on the way out. The panel's
+// own quantiser then runs last, at its native depth, instead of the host dithering
+// to four levels and the panel re-dithering what is left.
+//
+// Coordinates, orientation and clipping come from an embedded DirectPixelWriter:
+// this stores bytes exactly where that stores bits, so the two stay in step by
+// construction rather than by a second copy of the transform. Its framebuffer is
+// never written — only the transform fields are read.
+struct DirectGray8Writer {
+  uint8_t* canvas;
+  int stride;  // bytes per canvas row; may exceed canvasWidth
+  int canvasWidth;
+  int canvasHeight;
+  DirectPixelWriter xf;
+
+  // `gray8Canvas` is the PHYSICAL panel buffer (HalDisplay::borrowGray8Canvas),
+  // so its extent is the panel's, not the oriented screen's.
+  void init(const GfxRenderer& renderer, uint8_t* gray8Canvas, int gray8Stride) {
+    canvas = gray8Canvas;
+    stride = gray8Stride;
+    canvasWidth = renderer.getDisplayWidth();
+    canvasHeight = renderer.getDisplayHeight();
+    xf.init(renderer);
+  }
+
+  inline void beginRow(int logicalY) { xf.beginRow(logicalY); }
+
+  inline void bandColRange(int xBase, int width, int& colStart, int& colEnd) const {
+    xf.bandColRange(xBase, width, colStart, colEnd);
+  }
+
+  // Store one 8-bit sample (0 = black, 255 = white). Must follow beginRow().
+  inline void writePixel(int logicalX, uint8_t gray) const {
+    const int phyX = xf.rowPhyXBase + logicalX * xf.phyXStepX;
+    const int phyY = xf.rowPhyYBase + logicalX * xf.phyYStepX;
+    // One unsigned compare per axis rejects negatives and overruns together —
+    // an image placed at a negative offset, or wider than the panel.
+    if (static_cast<unsigned>(phyX) >= static_cast<unsigned>(canvasWidth)) return;
+    if (static_cast<unsigned>(phyY) >= static_cast<unsigned>(canvasHeight)) return;
+    canvas[static_cast<uint32_t>(phyY) * stride + phyX] = gray;
   }
 };

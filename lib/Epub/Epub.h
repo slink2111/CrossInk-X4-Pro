@@ -14,6 +14,7 @@
 class ZipFile;
 class ZipFileStreamReader;
 class GfxRenderer;
+class BuildArena;
 
 class Epub {
  private:
@@ -164,8 +165,12 @@ class Epub {
                                    bool trailingNullByte = false) const;
   bool readItemContentsToStream(const std::string& itemHref, Print& out, size_t chunkSize,
                                 bool allowEarlyStop = false) const;
+  static constexpr size_t EXTRACT_WRITE_BUFFER_BYTES = 4 * 1024;
+  static constexpr size_t EXTRACT_ARENA_BYTES = 33 * 1024 + EXTRACT_WRITE_BUFFER_BYTES;
   bool extractItemToFile(const std::string& itemHref, const std::string& destPath, size_t chunkSize = 4096) const;
+  bool extractItemToFile(const std::string& itemHref, const std::string& destPath, BuildArena* arena) const;
   bool getItemSize(const std::string& itemHref, size_t* size) const;
+  bool getStoredItemRange(const std::string& itemHref, uint32_t* offset, uint32_t* size) const;
   bool getOptimizerImageDimensions(const std::string& itemHref, uint16_t& width, uint16_t& height) const;
   // Seeds the normal local cache from an exact optimizer sidecar, or streams a
   // bounded nearest-neighbour resize into that cache when the device differs.

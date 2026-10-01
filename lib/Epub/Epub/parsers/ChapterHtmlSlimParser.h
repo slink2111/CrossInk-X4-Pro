@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "Epub/EpubRenderMode.h"
+#include "Epub/FontSizeLadder.h"
 #include "Epub/FootnoteEntry.h"
 #include "Epub/Page.h"
 #include "Epub/ParsedText.h"
@@ -150,6 +151,8 @@ class ChapterHtmlSlimParser {
     uint32_t visibleTextOffset = 0;
     bool isHeader = false;
     uint8_t colSpan = 1;
+    std::string imageSrc;
+    std::string imageAlt;
   };
 
   struct BufferedTableRow {
@@ -240,10 +243,18 @@ class ChapterHtmlSlimParser {
   uint16_t textRunBytesBeforeLayoutLimit() const;
   void markCurrentPageFromCurrentTextBlock();
   void markCurrentPageFromCurrentElement();
-  void setCurrentPageVisibleOffset(uint32_t offset);
   void completeCurrentPage();
+  void setCurrentPageVisibleOffset(uint32_t offset);
   void makePages();
   int effectiveLineHeight() const;
+  int effectiveLineHeight(const BlockStyle& bs) const;
+  void resolveBlockFont(BlockStyle& bs);
+  std::unique_ptr<ImageBlock> buildCellImage(const std::string& src, const std::string& alt, uint16_t maxWidth,
+                                             uint16_t maxHeight);
+  void placeImageBlockAsBlock(std::unique_ptr<ImageBlock> image);
+  FontSizeLadder fontSizeLadder_;
+  int16_t lastBlockMarginBottom = 0;
+  static constexpr float kHeadingMultiplier[3] = {1.6f, 1.4f, 1.2f};
   bool isPreviewBuild() const { return !previewAnchor.empty() && previewMaxPages > 0; }
   bool isScanningForPreviewAnchor() const { return isPreviewBuild() && !previewAnchorFound; }
   bool handlePreviewScanStart(const XML_Char** atts);
@@ -331,6 +342,7 @@ class ChapterHtmlSlimParser {
   void releaseInputFile();
 
   void addLineToPage(std::shared_ptr<TextBlock> line, uint32_t visibleOffset);
+  void setFontSizeLadder(const FontSizeLadder& ladder) { fontSizeLadder_ = ladder; }
   const std::vector<std::pair<std::string, uint16_t>>& getAnchors() const { return anchorData; }
   bool wasLowMemoryFallbackTriggered() const { return lowMemoryImageFallback; }
   bool wasLowMemoryAbortTriggered() const { return lowMemoryAbort; }

@@ -37,6 +37,13 @@ struct BlockStyle {
   // a full line-height gap when the <br> block stays empty (section-break use case).
   // NOT propagated through getCombinedBlockStyle so it can't leak into sibling blocks.
   bool fromBrElement = false;
+  // Parse-time guard: true once resolveBlockFont() has snapped this block to the size
+  // ladder, so a second layout pass (long-block split, continuations) can't re-resolve the
+  // residual multiplier.
+  bool fontResolved = false;
+  float fontSizeMultiplier = 1.0f;
+  float lineHeightMultiplier = 1.0f;
+  int32_t headingFontId = 0;
 
   // Combined insets (margin + padding)
   [[nodiscard]] int16_t leftInset() const { return marginLeft + paddingLeft; }
@@ -107,6 +114,11 @@ struct BlockStyle {
       result.isRtl = isRtl;
       result.directionDefined = true;
     }
+    result.fontSizeMultiplier =
+        (child.fontSizeMultiplier != 1.0f) ? child.fontSizeMultiplier : fontSizeMultiplier;
+    result.lineHeightMultiplier =
+        (child.lineHeightMultiplier != 1.0f) ? child.lineHeightMultiplier : lineHeightMultiplier;
+    result.headingFontId = (child.headingFontId != 0) ? child.headingFontId : headingFontId;
     return result;
   }
 
@@ -151,6 +163,12 @@ struct BlockStyle {
     }
     if (cssStyle.hasPageBreakAfter()) {
       blockStyle.pageBreakAfter = cssStyle.pageBreakAfter;
+    }
+    if (cssStyle.hasFontSizeMultiplier()) {
+      blockStyle.fontSizeMultiplier = cssStyle.fontSizeMultiplier;
+    }
+    if (cssStyle.hasLineHeight()) {
+      blockStyle.lineHeightMultiplier = cssStyle.lineHeightMultiplier;
     }
     return blockStyle;
   }

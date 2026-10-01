@@ -342,6 +342,41 @@ SectionFallbackResult runSectionBuildFallbacks(const EpubRenderMode selectedMode
   return result;
 }
 
+static FontSizeLadder buildReaderFontSizeLadder(const int bodyFontId) {
+  FontSizeLadder ladder;
+  static const struct {
+    uint8_t family;
+    struct {
+      int fontId;
+      uint8_t points;
+    } rungs[4];
+  } kFamilies[] = {
+      {CrossPointSettings::LEXENDDECA,
+       {{LEXENDDECA_10_FONT_ID, 10},
+        {LEXENDDECA_12_FONT_ID, 12},
+        {LEXENDDECA_14_FONT_ID, 14},
+        {LEXENDDECA_16_FONT_ID, 16}}},
+      {CrossPointSettings::BITTER,
+       {{BITTER_10_FONT_ID, 10},
+        {BITTER_12_FONT_ID, 12},
+        {BITTER_14_FONT_ID, 14},
+        {BITTER_16_FONT_ID, 16}}},
+  };
+
+  for (const auto& fam : kFamilies) {
+    for (int i = 0; i < 4; ++i) {
+      if (fam.rungs[i].fontId == bodyFontId) {
+        const uint8_t bodyPt = fam.rungs[i].points;
+        for (int j = 0; j < 4; ++j) {
+          ladder.addRung(fam.rungs[j].fontId, static_cast<uint16_t>(fam.rungs[j].points * 100 / bodyPt));
+        }
+        return ladder;
+      }
+    }
+  }
+  return ladder;
+}
+
 ReaderRenderSpec readerRenderSpecForProfile(const int fontId, const uint16_t viewportWidth,
                                             const uint16_t viewportHeight, const SectionBuildProfile& profile) {
   ReaderRenderSpec spec = SETTINGS.readerRenderSpec(viewportWidth, viewportHeight, profile.renderMode);
@@ -349,6 +384,7 @@ ReaderRenderSpec readerRenderSpecForProfile(const int fontId, const uint16_t vie
   spec.embeddedStyle = profile.embeddedStyle;
   spec.focusReadingEnabled = profile.focusReadingEnabled;
   spec.guideReadingEnabled = profile.guideReadingEnabled;
+  spec.fontSizeLadder = buildReaderFontSizeLadder(fontId);
   return spec;
 }
 

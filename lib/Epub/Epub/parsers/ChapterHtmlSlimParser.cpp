@@ -1096,7 +1096,13 @@ bool ChapterHtmlSlimParser::streamCurrentTableRow() {
       fallbackStreamingTableToParagraphs("cell has too many lines");
       return !lowMemoryAbort;
     }
-    const uint32_t cellHeight = std::max<size_t>(1, destCell.lines.size()) * lineHeight + TABLE_CELL_PADDING * 2;
+    if (!sourceCell.imageSrc.empty()) {
+      const uint16_t cellInnerWidth = TableColumnLayout::innerWidth(tableWidth, columnCount, static_cast<uint8_t>(cellIndex), 1, TABLE_CELL_PADDING);
+      destCell.image = buildCellImage(sourceCell.imageSrc, sourceCell.imageAlt, cellInnerWidth, viewportHeight / 2);
+    }
+    const uint32_t imageExtraH = destCell.image ? static_cast<uint32_t>(destCell.image->getRenderedHeight()) : 0;
+    const uint32_t cellLineCount = std::max<size_t>(destCell.image ? 0 : 1, destCell.lines.size());
+    const uint32_t cellHeight = cellLineCount * lineHeight + imageExtraH + TABLE_CELL_PADDING * 2;
     if (cellHeight > viewportHeight) {
       fallbackStreamingTableToParagraphs("row exceeds viewport");
       return !lowMemoryAbort;
@@ -1357,8 +1363,13 @@ void ChapterHtmlSlimParser::emitBufferedTableAsFragments(BufferedTable& table) {
         return false;
       }
 
-      const uint32_t cellLineCount = std::max<size_t>(1, destCell.lines.size());
-      const uint32_t cellHeight = cellLineCount * lineHeight + TABLE_CELL_PADDING * 2;
+      if (!sourceCell.imageSrc.empty()) {
+        const uint16_t cellInnerWidth = TableColumnLayout::innerWidth(tableWidth, columnCount, static_cast<uint8_t>(colIndex), 1, TABLE_CELL_PADDING);
+        destCell.image = buildCellImage(sourceCell.imageSrc, sourceCell.imageAlt, cellInnerWidth, viewportHeight / 2);
+      }
+      const uint32_t imageExtraH = destCell.image ? static_cast<uint32_t>(destCell.image->getRenderedHeight()) : 0;
+      const uint32_t cellLineCount = std::max<size_t>(destCell.image ? 0 : 1, destCell.lines.size());
+      const uint32_t cellHeight = cellLineCount * lineHeight + imageExtraH + TABLE_CELL_PADDING * 2;
       if (cellHeight > viewportHeight) {
         LOG_DBG("EHP", "Table layout fallback: row height %lu exceeds viewport %u",
                 static_cast<unsigned long>(cellHeight), viewportHeight);
@@ -2087,6 +2098,29 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
   }
 
   if (self->tableDepth == 1 && matches(name, IMAGE_TAGS, std::size(IMAGE_TAGS))) {
+    std::string src;
+    std::string alt;
+    if (atts != nullptr) {
+      for (int i = 0; atts[i]; i += 2) {
+        if (strcmp(atts[i], "src") == 0) {
+          src = atts[i + 1];
+        } else if (src.empty() && (strcmp(atts[i], "href") == 0 || strcmp(atts[i], "xlink:href") == 0)) {
+          src = atts[i + 1];
+        } else if (strcmp(atts[i], "alt") == 0) {
+          alt = atts[i + 1];
+        }
+      }
+    }
+    if (self->currentTableBuffer && !self->currentTableBuffer->rows.empty() &&
+        !self->currentTableBuffer->rows.back().cells.empty() && !src.empty() && self->imageRendering != 2) {
+      auto& cell = self->currentTableBuffer->rows.back().cells.back();
+      if (cell.imageSrc.empty()) {
+        cell.imageSrc = src;
+        cell.imageAlt = alt;
+      }
+      self->skipCurrentElement();
+      return;
+    }
     if (self->currentTableBuffer) {
       self->currentTableBuffer->unsupported = true;
     }
@@ -2409,24 +2443,62 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
                 self->attachPendingPublisherPageMarkers(self->currentPageNextY);
 
                 // Create ImageBlock and add to page
-                auto imageBlock = makeUniqueNoThrow<ImageBlock>(std::move(cachedImagePath), std::move(sourcePath),
-                                                                displayWidth, displayHeight);
+                auto imageBlock = makeUniqueNoThrow<ImageBlock>(cachedImagePath, static_cast<int16_t>(displayWidth),
+                                                                static_cast<int16_t>(displayHeight), alt,
+                                                                self->epub->getPath(), resolvedPath);
                 if (!imageBlock) {
                   LOG_ERR("EHP", "Failed to create ImageBlock");
                   self->lowMemoryAbort = true;
                   return;
                 }
                 int xPos = (self->viewportWidth - displayWidth) / 2;
-                auto pageImage = makeUniqueNoThrow<PageImage>(std::move(imageBlock), xPos, self->currentPageNextY);
-                if (!pageImage) {
-                  LOG_ERR("EHP", "Failed to create PageImage");
-                  self->lowMemoryAbort = true;
-                  return;
+                if (displayHeight <= self->viewportHeight) {
+                  auto pageImage = makeUniqueNoThrow<PageImage>(std::move(imageBlock), xPos, self->currentPageNextY);
+                  if (!pageImage) {
+                    LOG_ERR("EHP", "Failed to create PageImage");
+                    self->lowMemoryAbort = true;
+                    return;
+                  }
+                  self->currentPage->elements.push_back(std::move(pageImage));
+                  self->setCurrentPageVisibleOffset(self->visibleTextOffset);
+                  self->markCurrentPageFromCurrentElement();
+                  self->currentPageNextY += displayHeight + imageMarginBottom;
+                } else {
+                  // Image taller than one page: split into per-page crops.
+                  static constexpr int kMinImageSliceH = 64;
+                  int srcOffset = 0;
+                  while (srcOffset < displayHeight) {
+                    int remaining = displayHeight - srcOffset;
+                    int sliceH = std::min(remaining, static_cast<int>(self->viewportHeight));
+                    int leftover = remaining - sliceH;
+                    if (leftover > 0 && leftover < kMinImageSliceH) {
+                      sliceH -= (kMinImageSliceH - leftover);
+                    }
+                    auto crop = imageBlock->makeCrop(static_cast<int16_t>(srcOffset), static_cast<int16_t>(sliceH));
+                    if (!self->currentPage) {
+                      if (!self->startNewPage("image slice")) return;
+                      self->currentPageNextY = 0;
+                    }
+                    auto slice = makeUniqueNoThrow<PageImage>(std::move(crop), xPos, self->currentPageNextY);
+                    if (!slice) {
+                      LOG_ERR("EHP", "Image slice dropped: PageImage allocation failed");
+                      return;
+                    }
+                    self->currentPage->elements.push_back(std::move(slice));
+                    self->setCurrentPageVisibleOffset(self->visibleTextOffset);
+                    self->markCurrentPageFromCurrentElement();
+                    self->currentPageNextY += sliceH;
+                    srcOffset += sliceH;
+                    if (srcOffset < displayHeight) {
+                      self->completeCurrentPage();
+                      self->completedPageCount++;
+                      self->stopPreviewIfPageLimitReached();
+                      if (self->previewStopRequested) return;
+                      self->currentPageNextY = 0;
+                    }
+                  }
+                  self->currentPageNextY += imageMarginBottom;
                 }
-                self->currentPage->elements.push_back(std::move(pageImage));
-                self->setCurrentPageVisibleOffset(self->visibleTextOffset);
-                self->markCurrentPageFromCurrentElement();
-                self->currentPageNextY += displayHeight + imageMarginBottom;
 
                 if (self->currentTextBlock && self->currentTextBlock->isEmpty()) {
                   BlockStyle afterImageStyle = self->blockStyleBuf_[self->blockStyleCount_ - 1].withoutBottom();
@@ -2643,6 +2715,12 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
     headerBlockStyle.textAlignDefined = true;
     if (self->embeddedStyle && cssStyle.hasTextAlign()) {
       headerBlockStyle.alignment = cssStyle.textAlign;
+    }
+    if (!cssStyle.hasFontSizeMultiplier()) {
+      const int level = name[1] - '0';  // 'h1'->1, 'h2'->2, ...
+      if (level >= 1 && level <= 3) {
+        headerBlockStyle.fontSizeMultiplier = kHeadingMultiplier[level - 1];
+      }
     }
     if (!self->embeddedStyle || self->isLightMode()) {
       stripPublisherSpacing(headerBlockStyle);
@@ -3787,7 +3865,9 @@ void ChapterHtmlSlimParser::addLineToPage(std::shared_ptr<TextBlock> line, const
     return;
   }
 
-  const int lineHeight = effectiveLineHeight() + line->getRubyShift(renderer.getFontAscenderSize(fontId));
+  const BlockStyle& lineStyle = currentTextBlock ? currentTextBlock->getBlockStyle() : BlockStyle();
+  const int lineFontId = lineStyle.headingFontId != 0 ? lineStyle.headingFontId : fontId;
+  const int lineHeight = effectiveLineHeight(lineStyle) + line->getRubyShift(renderer.getFontAscenderSize(lineFontId));
 
   if (!currentPage) {
     if (!startNewPage("line layout")) {
@@ -3844,7 +3924,28 @@ void ChapterHtmlSlimParser::addLineToPage(std::shared_ptr<TextBlock> line, const
   currentPageNextY += lineHeight;
 }
 
+void ChapterHtmlSlimParser::resolveBlockFont(BlockStyle& bs) {
+  if (bs.fontResolved) return;
+  bs.fontResolved = true;
+  if (bs.headingFontId != 0 || bs.fontSizeMultiplier == 1.0f) return;
+  const FontSizeLadder::Resolved r = fontSizeLadder_.resolve(bs.fontSizeMultiplier * 100.0f);
+  if (r.fontId == 0) {
+    bs.fontSizeMultiplier = r.residual;
+    return;
+  }
+  bs.headingFontId = r.fontId;
+  bs.fontSizeMultiplier = r.residual;
+}
+
+int ChapterHtmlSlimParser::effectiveLineHeight(const BlockStyle& bs) const {
+  const int targetFontId = bs.headingFontId != 0 ? bs.headingFontId : fontId;
+  return std::max(1, static_cast<int>(renderer.getLineHeight(targetFontId) * lineCompression * bs.fontSizeMultiplier * bs.lineHeightMultiplier + 0.5f));
+}
+
 int ChapterHtmlSlimParser::effectiveLineHeight() const {
+  if (currentTextBlock) {
+    return effectiveLineHeight(currentTextBlock->getBlockStyle());
+  }
   return std::max(1, static_cast<int>(renderer.getLineHeight(fontId) * lineCompression + 0.5f));
 }
 
@@ -3864,19 +3965,20 @@ void ChapterHtmlSlimParser::makePages() {
     }
   }
 
-  // Apply top spacing before the paragraph (stored in pixels). An
-  // intermediate text-run flush has already emitted the first lines and
-  // consumed this spacing, so do not apply it again to the remainder.
+  resolveBlockFont(currentTextBlock->getBlockStyle());
   const BlockStyle& blockStyle = currentTextBlock->getBlockStyle();
-  const int lineHeight = effectiveLineHeight();
+  const int blockFontId = blockStyle.headingFontId != 0 ? blockStyle.headingFontId : fontId;
+  const int lineHeight = effectiveLineHeight(blockStyle);
   if (!currentTextBlock->isContinuation()) {
     if (blockStyle.marginTop > 0) {
-      currentPageNextY += blockStyle.marginTop;
+      const int16_t collapse = std::min(lastBlockMarginBottom, blockStyle.marginTop);
+      currentPageNextY += static_cast<int16_t>(blockStyle.marginTop - collapse);
     }
     if (blockStyle.paddingTop > 0) {
       currentPageNextY += blockStyle.paddingTop;
     }
   }
+  lastBlockMarginBottom = 0;
 
   // Calculate effective width accounting for horizontal margins/padding
   const int horizontalInset = blockStyle.totalHorizontalInset();
@@ -3884,7 +3986,7 @@ void ChapterHtmlSlimParser::makePages() {
       (horizontalInset < viewportWidth) ? static_cast<uint16_t>(viewportWidth - horizontalInset) : viewportWidth;
 
   if (!currentTextBlock->layoutAndExtractLines(
-          renderer, fontId, effectiveWidth, [this](const std::shared_ptr<TextBlock>& textBlock, const uint32_t offset) {
+          renderer, blockFontId, effectiveWidth, [this](const std::shared_ptr<TextBlock>& textBlock, const uint32_t offset) {
             addLineToPage(textBlock, offset);
           })) {
     LOG_ERR("EHP", "Failed to lay out text block");
@@ -3909,6 +4011,9 @@ void ChapterHtmlSlimParser::makePages() {
   // Apply bottom spacing after the paragraph (stored in pixels)
   if (blockStyle.marginBottom > 0) {
     currentPageNextY += blockStyle.marginBottom;
+    lastBlockMarginBottom = blockStyle.marginBottom;
+  } else {
+    lastBlockMarginBottom = 0;
   }
   if (blockStyle.paddingBottom > 0) {
     currentPageNextY += blockStyle.paddingBottom;
@@ -3927,5 +4032,98 @@ void ChapterHtmlSlimParser::makePages() {
       return;
     }
     currentPageNextY = 0;
+  }
+}
+
+std::unique_ptr<ImageBlock> ChapterHtmlSlimParser::buildCellImage(const std::string& src, const std::string& alt,
+                                                                  const uint16_t maxWidth, const uint16_t maxHeight) {
+  if (src.empty() || maxWidth == 0 || maxHeight == 0) return nullptr;
+
+  const std::string resolvedPath = FsHelpers::normalisePath(FsHelpers::decodeUriEscapes(contentBase + src));
+  if (!ImageDecoderFactory::isFormatSupported(resolvedPath)) return nullptr;
+
+  ImageDimensions dims = {0, 0};
+  bool dimsOk = ImageDecoderFactory::getDimensionsFromZipEntry(epub->getPath(), resolvedPath, dims);
+  if (!dimsOk || dims.width == 0 || dims.height == 0) {
+    LOG_DBG("EHP", "Table cell image: no dims for %s", resolvedPath.c_str());
+    return nullptr;
+  }
+
+  // Scale to fit the cell box, preserving aspect ratio. Never upscale.
+  float scale = 1.0f;
+  if (static_cast<int>(dims.width) > static_cast<int>(maxWidth)) scale = static_cast<float>(maxWidth) / dims.width;
+  if (static_cast<int>(dims.height) * scale > static_cast<int>(maxHeight))
+    scale = static_cast<float>(maxHeight) / dims.height;
+  const int displayWidth = std::max(1, static_cast<int>(dims.width * scale));
+  const int displayHeight = std::max(1, static_cast<int>(dims.height * scale));
+
+  const std::string ext = resolvedPath.substr(resolvedPath.rfind('.'));
+  std::string cachedPath = imageBasePath + std::to_string(imageCounter++) + ext;
+
+  return makeUniqueNoThrow<ImageBlock>(cachedPath, static_cast<int16_t>(displayWidth),
+                                       static_cast<int16_t>(displayHeight), alt, epub->getPath(), resolvedPath);
+}
+
+void ChapterHtmlSlimParser::placeImageBlockAsBlock(std::unique_ptr<ImageBlock> image) {
+  if (!image) return;
+  const int displayWidth = image->getWidth();
+  const int displayHeight = image->getRenderedHeight();
+
+  if (!currentPage) {
+    if (!startNewPage("image block")) return;
+    currentPageNextY = 0;
+  }
+  if (!currentPage->elements.empty() && currentPageNextY + displayHeight > viewportHeight) {
+    completeCurrentPage();
+    completedPageCount++;
+    stopPreviewIfPageLimitReached();
+    if (previewStopRequested) return;
+    if (!startNewPage("image page break")) return;
+    currentPageNextY = 0;
+  }
+
+  const int xPos = (viewportWidth - displayWidth) / 2;
+
+  if (displayHeight <= viewportHeight) {
+    auto pageImage = makeUniqueNoThrow<PageImage>(std::move(image), xPos, currentPageNextY);
+    if (!pageImage) {
+      LOG_ERR("EHP", "Image dropped: PageImage allocation failed");
+      return;
+    }
+    currentPage->elements.push_back(std::move(pageImage));
+    currentPageNextY += displayHeight;
+    return;
+  }
+
+  // Image taller than one page: split into per-page crops.
+  static constexpr int kMinImageSliceH = 64;
+  int srcOffset = 0;
+  while (srcOffset < displayHeight) {
+    int remaining = displayHeight - srcOffset;
+    int sliceH = std::min(remaining, static_cast<int>(viewportHeight));
+    int leftover = remaining - sliceH;
+    if (leftover > 0 && leftover < kMinImageSliceH) {
+      sliceH -= (kMinImageSliceH - leftover);
+    }
+    auto crop = image->makeCrop(static_cast<int16_t>(srcOffset), static_cast<int16_t>(sliceH));
+    if (!currentPage) {
+      if (!startNewPage("image slice")) return;
+      currentPageNextY = 0;
+    }
+    auto slice = makeUniqueNoThrow<PageImage>(std::move(crop), xPos, currentPageNextY);
+    if (!slice) {
+      LOG_ERR("EHP", "Image slice dropped: PageImage allocation failed");
+      return;
+    }
+    currentPage->elements.push_back(std::move(slice));
+    currentPageNextY += sliceH;
+    srcOffset += sliceH;
+    if (srcOffset < displayHeight) {
+      completeCurrentPage();
+      completedPageCount++;
+      stopPreviewIfPageLimitReached();
+      if (previewStopRequested) return;
+      currentPageNextY = 0;
+    }
   }
 }

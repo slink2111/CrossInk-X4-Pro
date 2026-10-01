@@ -6,6 +6,7 @@
 #include "Arduino.h"
 #include "HalStorage.h"
 #include "Logging.h"
+#include <esp_task_wdt.h>
 #include "esp_debug_helpers.h"
 #include "esp_private/esp_cpu_internal.h"
 #include "esp_private/esp_system_attr.h"
@@ -313,6 +314,12 @@ bool isRebootFromPanic() {
   const bool watchdogReset =
       resetReason == ESP_RST_INT_WDT || resetReason == ESP_RST_TASK_WDT || resetReason == ESP_RST_WDT;
   return watchdogReset && panicCaptureMarker == PANIC_CAPTURE_MAGIC;
+}
+
+void feedWatchdog() {
+  if (esp_task_wdt_status(nullptr) == ESP_OK) {
+    esp_task_wdt_reset();
+  }
 }
 
 }  // namespace HalSystem

@@ -99,6 +99,9 @@ struct CssPropertyFlags {
   uint32_t pageBreakBefore : 1;
   uint32_t pageBreakAfter : 1;
   uint32_t fontVariantCaps : 1;
+  uint32_t lineHeight : 1;
+  uint32_t fontSizeMultiplier : 1;
+  uint32_t smallCaps : 1;
 
   CssPropertyFlags()
       : textAlign(0),
@@ -122,13 +125,16 @@ struct CssPropertyFlags {
         direction(0),
         pageBreakBefore(0),
         pageBreakAfter(0),
-        fontVariantCaps(0) {}
+        fontVariantCaps(0),
+        lineHeight(0),
+        fontSizeMultiplier(0),
+        smallCaps(0) {}
 
   [[nodiscard]] bool anySet() const {
     return textAlign || fontStyle || fontWeight || textDecoration || textIndent || marginTop || marginBottom ||
            marginLeft || marginRight || paddingTop || paddingBottom || paddingLeft || paddingRight || imageHeight ||
            imageWidth || display || backgroundBlack || verticalAlign || direction || pageBreakBefore ||
-           pageBreakAfter || fontVariantCaps;
+           pageBreakAfter || fontVariantCaps || lineHeight || fontSizeMultiplier || smallCaps;
   }
 
   void clearAll() {
@@ -136,7 +142,7 @@ struct CssPropertyFlags {
     marginTop = marginBottom = marginLeft = marginRight = 0;
     paddingTop = paddingBottom = paddingLeft = paddingRight = 0;
     imageHeight = imageWidth = display = backgroundBlack = verticalAlign = direction = 0;
-    pageBreakBefore = pageBreakAfter = fontVariantCaps = 0;
+    pageBreakBefore = pageBreakAfter = fontVariantCaps = lineHeight = fontSizeMultiplier = smallCaps = 0;
   }
 };
 
@@ -170,6 +176,9 @@ struct CssStyle {
   CssVerticalAlign verticalAlign = CssVerticalAlign::Baseline;  // vertical-align (super/sub positioning)
   bool pageBreakBefore = false;
   bool pageBreakAfter = false;
+  float lineHeightMultiplier = 1.0f;
+  float fontSizeMultiplier = 1.0f;
+  bool smallCaps = false;
 
   CssPropertyFlags defined;  // Tracks which properties were explicitly set
 
@@ -264,6 +273,18 @@ struct CssStyle {
       fontVariantCaps = base.fontVariantCaps;
       defined.fontVariantCaps = 1;
     }
+    if (base.hasLineHeight()) {
+      lineHeightMultiplier = base.lineHeightMultiplier;
+      defined.lineHeight = 1;
+    }
+    if (base.hasFontSizeMultiplier()) {
+      fontSizeMultiplier = base.fontSizeMultiplier;
+      defined.fontSizeMultiplier = 1;
+    }
+    if (base.hasSmallCaps()) {
+      smallCaps = base.smallCaps || base.fontVariantCaps == CssFontVariantCaps::SmallCaps;
+      defined.smallCaps = 1;
+    }
   }
 
   [[nodiscard]] bool hasTextAlign() const { return defined.textAlign; }
@@ -288,6 +309,9 @@ struct CssStyle {
   [[nodiscard]] bool hasPageBreakBefore() const { return defined.pageBreakBefore; }
   [[nodiscard]] bool hasPageBreakAfter() const { return defined.pageBreakAfter; }
   [[nodiscard]] bool hasFontVariantCaps() const { return defined.fontVariantCaps; }
+  [[nodiscard]] bool hasLineHeight() const { return defined.lineHeight; }
+  [[nodiscard]] bool hasFontSizeMultiplier() const { return defined.fontSizeMultiplier; }
+  [[nodiscard]] bool hasSmallCaps() const { return defined.smallCaps || defined.fontVariantCaps; }
 
   void reset() {
     textAlign = CssTextAlign::Left;
@@ -296,6 +320,9 @@ struct CssStyle {
     textDecoration = CssTextDecoration::None;
     direction = CssTextDirection::Ltr;
     fontVariantCaps = CssFontVariantCaps::Normal;
+    lineHeightMultiplier = 1.0f;
+    fontSizeMultiplier = 1.0f;
+    smallCaps = false;
     textIndent = CssLength{};
     marginTop = marginBottom = marginLeft = marginRight = CssLength{};
     paddingTop = paddingBottom = paddingLeft = paddingRight = CssLength{};

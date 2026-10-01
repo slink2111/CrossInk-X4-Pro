@@ -51,7 +51,14 @@ void logPrintf(const char* level, const char* origin, const char* format, ...);
 #else
 #define LOG_DBG(origin, format, ...)
 #endif
+
+#if LOG_LEVEL >= 3
+#define LOG_TRC(origin, format, ...) logPrintf("TRC", origin, format "\n", ##__VA_ARGS__)
 #else
+#define LOG_TRC(origin, format, ...)
+#endif
+#else
+#define LOG_TRC(origin, format, ...)
 #define LOG_DBG(origin, format, ...)
 #define LOG_ERR(origin, format, ...)
 #define LOG_INF(origin, format, ...)

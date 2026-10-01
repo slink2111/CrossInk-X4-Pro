@@ -80,6 +80,7 @@ struct TableFragmentCell {
   bool isHeader = false;
   uint8_t colSpan = 1;
   std::vector<std::shared_ptr<TextBlock>> lines;
+  std::shared_ptr<ImageBlock> image;  // optional in-cell graphic
 
   bool serialize(FsFile& file) const;
   static bool deserialize(FsFile& file, TableFragmentCell& outCell);

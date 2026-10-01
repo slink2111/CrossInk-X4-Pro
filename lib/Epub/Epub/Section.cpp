@@ -22,11 +22,12 @@ constexpr uint32_t SECTION_CACHE_MAGIC = 0x535843FF;  // bytes: 0xFF, "CXS"
 // must rebuild together.
 // v63: Paragraph base direction excludes direction changes from inline elements.
 // v66: Internal EPUB links preserve CSS superscript/subscript positioning.
-constexpr uint8_t SECTION_FILE_VERSION = 66;
+// v78: ImageBlock layout and decoding enhancements ported from witchhunt.
+constexpr uint8_t SECTION_FILE_VERSION = 78;
 // Suspended incremental build: valid pages plus LUTs and a parse-watermark trailer.
 // Change this with layout or payload changes so stale partial pages cannot resume
 // under a different layout contract.
-constexpr uint8_t SECTION_FILE_PARTIAL_VERSION = 0xF6;
+constexpr uint8_t SECTION_FILE_PARTIAL_VERSION = 0xF8;
 constexpr uint32_t HEADER_SIZE =
     sizeof(SECTION_CACHE_MAGIC) + sizeof(uint8_t) + sizeof(int) + sizeof(float) + sizeof(bool) + sizeof(bool) +
     sizeof(uint8_t) + sizeof(uint16_t) + sizeof(uint16_t) + sizeof(bool) + sizeof(bool) + sizeof(uint8_t) +
@@ -616,6 +617,7 @@ bool Section::createSectionFile(const ReaderRenderSpec& spec, const std::functio
       },
       embeddedStyle, contentBase, imageBasePath, imageRendering, std::move(tocAnchors), popupFn, cssParser, renderMode,
       buildOptions.isPreview() ? std::string(buildOptions.previewAnchor) : std::string{}, buildOptions.previewMaxPages);
+  visitor.setFontSizeLadder(spec.fontSizeLadder);
   Hyphenator::setPreferredLanguage(epub->getLanguage());
   bool cancelled = false;
   bool success = false;
@@ -940,6 +942,7 @@ bool Section::startBuild(const ReaderRenderSpec& spec, const SectionBuildOptions
 
   Hyphenator::setPreferredLanguage(epub->getLanguage());
   build_ = std::move(ctx);
+  build_->parser->setFontSizeLadder(spec.fontSizeLadder);
   if (!build_->parser->beginParse()) {
     LOG_ERR("SCT", "Failed to begin incremental section parse");
     lastLayoutAbortedForLowMemory_ = build_->parser->wasLowMemoryAbortTriggered();
@@ -1291,6 +1294,15 @@ std::unique_ptr<Page> Section::loadPageDuringBuild(const int page) {
 std::unique_ptr<Page> Section::loadPageAt(const int page) const {
   HalFile f;
   if (!Storage.openFileForRead("SCT", filePath, f)) {
+    return nullptr;
+  }
+
+  uint32_t magic = 0;
+  uint8_t version = 0;
+  if (!serialization::tryReadPod(f, magic) || magic != SECTION_CACHE_MAGIC ||
+      !serialization::tryReadPod(f, version) ||
+      (version != SECTION_FILE_VERSION && version != SECTION_FILE_PARTIAL_VERSION)) {
+    LOG_ERR("SCT", "loadPageAt: cache header invalid or version mismatch");
     return nullptr;
   }
 
