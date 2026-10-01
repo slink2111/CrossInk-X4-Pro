@@ -78,6 +78,7 @@ class SdCardFont {
   // image extraction. Keeps the font loaded and usable, but future layout or
   // rendering may need to re-read font metadata from SD.
   void releaseForLowMemory(bool preserveAdvanceTable = false);
+  void releaseResidentCaches() { releaseForLowMemory(); }
 
   // Drop the persistent advance cache. Call when unloading the SD font or
   // when font/size/family/glyph-table state changes.

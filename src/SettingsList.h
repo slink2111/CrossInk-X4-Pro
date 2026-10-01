@@ -17,6 +17,7 @@
 #include "CrossPointSettings.h"
 #include "KOReaderCredentialStore.h"
 #include "QuickActions.h"
+#include "ReaderFontSizes.h"
 #include "activities/settings/SettingsActivity.h"
 #include "util/Dictionary.h"
 #include "util/DictionaryRegistry.h"
@@ -56,6 +57,16 @@ inline SettingInfo buildSdFontSizeSetting(const SdCardFontFamilyInfo& family) {
   s.valuePtr = &CrossPointSettings::readerFontPointSize;
   s.key = "fontSize";
   s.category = StrId::STR_CAT_READER;
+
+  if (family.vector) {
+    s.enumStringValues.reserve(std::size(VECTOR_READER_POINT_SIZES));
+    s.enumRawValues.reserve(std::size(VECTOR_READER_POINT_SIZES));
+    for (uint8_t size : VECTOR_READER_POINT_SIZES) {
+      s.enumStringValues.push_back(fontSizePointLabel(size));
+      s.enumRawValues.push_back(size);
+    }
+    return s;
+  }
 
   const std::vector<uint8_t> sizes = family.availableSizes();
   s.enumStringValues.reserve(sizes.size());
@@ -207,8 +218,12 @@ inline SettingInfo buildFontFamilySetting(const SdCardFontRegistry* registry) {
     } else {
       int sdIdx = v - CrossPointSettings::BUILTIN_FONT_COUNT;
       if (sdIdx < static_cast<int>(sdFamilyNames.size())) {
-        SETTINGS.readerFontPointSize =
-            sdFamilySizes[sdIdx][closestPointSizeIndex(sdFamilySizes[sdIdx], targetPointSize)];
+        if (!sdFamilySizes[sdIdx].empty()) {
+          SETTINGS.readerFontPointSize =
+              sdFamilySizes[sdIdx][closestPointSizeIndex(sdFamilySizes[sdIdx], targetPointSize)];
+        } else {
+          SETTINGS.readerFontPointSize = std::clamp<uint8_t>(targetPointSize, 8, 22);
+        }
         strncpy(SETTINGS.sdFontFamilyName, sdFamilyNames[sdIdx].c_str(), sizeof(SETTINGS.sdFontFamilyName) - 1);
         SETTINGS.sdFontFamilyName[sizeof(SETTINGS.sdFontFamilyName) - 1] = '\0';
       }

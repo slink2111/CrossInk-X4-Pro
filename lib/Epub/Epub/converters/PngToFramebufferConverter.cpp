@@ -7,6 +7,9 @@
 #include <Memory.h>
 #include <MemoryBudget.h>
 #include <PNGdec.h>
+#ifdef local
+#undef local
+#endif
 
 #include <cstdlib>
 #include <new>

@@ -443,8 +443,8 @@ bool DictionaryDefinitionActivity::shouldApproximateDefinitionCodepoint(const ui
 
   const int fontId = getDefinitionFontId();
   // SD fonts own their coverage. Do not replace pronunciation, Greek, or combining
-  // characters before the active .cpfont gets a chance to draw them.
-  if (renderer.isSdCardFont(fontId)) return false;
+  // characters before the active .cpfont / .ttf gets a chance to draw them.
+  if (renderer.isSdCardFont(fontId) || renderer.isTtfFont(fontId)) return false;
 
   return !builtinDefinitionFontSupportsCandidate(cp);
 }

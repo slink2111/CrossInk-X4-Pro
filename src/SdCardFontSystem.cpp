@@ -3,15 +3,41 @@
 #include <GfxRenderer.h>
 #include <HalStorage.h>
 #include <Logging.h>
+#include <Memory.h>
 #include <MemoryBudget.h>
+#include <VectorFontSupport.h>
+
+#if CROSSPOINT_VECTOR_FONTS
+#include <TtfEpdFont.h>
+#include <esp_heap_caps.h>
+#include "ReaderFontSizes.h"
+#endif
 
 #include <cstdio>
 #include <cstring>
+#include <iterator>
 
 #include "CrossPointSettings.h"
 #include "fontIds.h"
 
 namespace {
+
+#if CROSSPOINT_VECTOR_FONTS
+// Stable, non-zero renderer font id for a vector family at a size (FNV-1a of
+// name + size). 0 is the "not found" sentinel, so bump collisions to 1.
+int computeTtfFontId(const char* familyName, uint8_t pointSize) {
+  uint32_t hash = 2166136261u;
+  for (const char* p = familyName; p && *p; ++p) {
+    hash ^= static_cast<uint8_t>(*p);
+    hash *= 16777619u;
+  }
+  hash ^= pointSize;
+  hash *= 16777619u;
+  hash ^= 0x54544600u;  // "TTF\0" salt to avoid colliding with cpfont ids
+  const int id = static_cast<int>(hash);
+  return id != 0 ? id : 1;
+}
+#endif  // CROSSPOINT_VECTOR_FONTS
 
 struct UiFontSize {
   int fontId;
@@ -101,6 +127,9 @@ bool findInstalledFontFile(const char* familyName, const uint8_t targetPointSize
 
 }  // namespace
 
+SdCardFontSystem::SdCardFontSystem() = default;
+SdCardFontSystem::~SdCardFontSystem() = default;
+
 void SdCardFontSystem::begin(GfxRenderer& renderer) {
   // Register this system as the SD font ID resolver in settings.
   // Uses a static trampoline since CrossPointSettings stores a plain function pointer.
@@ -127,13 +156,29 @@ void SdCardFontSystem::persistSettingsChange() const {
 }
 
 void SdCardFontSystem::ensureLoaded(GfxRenderer& renderer) {
-  // If the web server (or another task) installed/deleted fonts, re-discover.
-  // Track whether we just re-discovered so we can force a reload below even
-  // when the wanted family/size still maps to the same point size — the file
-  // contents on disk may have changed (e.g. user re-uploaded a new build).
   const bool registryWasDirty = registryDirty_.load(std::memory_order_acquire);
-
   const char* wantedFamily = SETTINGS.sdFontFamilyName;
+
+#if CROSSPOINT_VECTOR_FONTS
+  // Vector (.ttf/.otf) family selected: route through the FreeInkFont path and
+  // drop any pre-rasterized (.cpfont) font that was loaded.
+  if (wantedFamily[0] != '\0') {
+    ensureRegistry();
+    const auto* wantedFam = registry_.findFamily(wantedFamily);
+    if (wantedFam && wantedFam->vector) {
+      if (!manager_.currentFamilyName().empty()) {
+        manager_.unloadAll(renderer);
+        loadedFontPointSize_ = 0;
+      }
+      loadTtfFamily(*wantedFam, renderer, registryWasDirty);
+      return;
+    }
+  }
+  // Not on a vector family — ensure any previously-loaded TTF font is released
+  // before the pre-rasterized/built-in path below takes over.
+  if (!ttfFamily_.empty()) unloadTtf(renderer);
+#endif
+
   const std::string& currentFamily = manager_.currentFamilyName();
   uint8_t targetPointSize = SETTINGS.getSdFontTargetPointSize();
 
@@ -206,6 +251,9 @@ void SdCardFontSystem::ensureLoaded(GfxRenderer& renderer) {
 }
 
 void SdCardFontSystem::releaseLoadedFont(GfxRenderer& renderer) {
+#if CROSSPOINT_VECTOR_FONTS
+  unloadTtf(renderer);
+#endif
   if (manager_.currentFamilyName().empty()) return;
 
   const std::string familyName = manager_.currentFamilyName();
@@ -238,7 +286,6 @@ void SdCardFontSystem::releaseRegistry() {
 
 void SdCardFontSystem::releaseForNetwork(GfxRenderer& renderer) {
   releaseLoadedFont(renderer);
-
   releaseRegistry();
   registryDirty_.store(true, std::memory_order_release);
 }
@@ -304,9 +351,10 @@ void SdCardFontSystem::setupUiFallbacksDirect(GfxRenderer& renderer, const char*
 }
 
 int SdCardFontSystem::resolveFontId(const char* familyName, uint8_t /*pointSize*/) const {
-  // The manager loads exactly one size (closest to the selected point size), so the
-  // enum is implicit — always return the single loaded font ID for this family.
-  // ensureLoaded() must have been called with the current settings before this.
+#if CROSSPOINT_VECTOR_FONTS
+  if (ttfDictFontId_ != 0 && familyName && ttfDictFamily_ == familyName) return ttfDictFontId_;
+  if (ttfFontId_ != 0 && familyName && ttfFamily_ == familyName) return ttfFontId_;
+#endif
   return manager_.getFontId(familyName);
 }
 
@@ -316,6 +364,12 @@ bool SdCardFontSystem::changeReaderFontSize(const bool larger, const FontSizeSte
   if (SETTINGS.sdFontFamilyName[0] != '\0') {
     const auto* family = registry_.findFamily(SETTINGS.sdFontFamilyName);
     if (family) {
+#if CROSSPOINT_VECTOR_FONTS
+      if (family->vector) {
+        return changeReaderFontSizeStep(VECTOR_READER_POINT_SIZES, std::size(VECTOR_READER_POINT_SIZES),
+                                        SETTINGS.readerFontPointSize, larger, mode);
+      }
+#endif
       const auto sizes = family->availableSizes();
       if (changeReaderFontSizeStep(sizes.data(), sizes.size(), SETTINGS.readerFontPointSize, larger, mode)) return true;
       if (sizes.size() > 0) return false;
@@ -337,22 +391,110 @@ uint8_t SdCardFontSystem::resolveLegacySizeStep(const char* familyName, const ui
 
 DictionaryFontActivation SdCardFontSystem::activateDictionaryFont(GfxRenderer& renderer, const char* familyName,
                                                                   uint8_t targetPointSize) {
-  // A non-zero size with no dedicated family means "use the reader's installed
-  // family at this size". This keeps the setting useful when the same custom
-  // family is wanted for reading and definitions without keeping two families
-  // resident.
-  if ((!familyName || familyName[0] == '\0') && targetPointSize != 0 && SETTINGS.sdFontFamilyName[0] != '\0') {
-    familyName = SETTINGS.sdFontFamilyName;
+  if (!familyName || familyName[0] == '\0') {
+    if (SETTINGS.dictionarySdFontFamilyName[0] != '\0') {
+      familyName = SETTINGS.dictionarySdFontFamilyName;
+    } else if (SETTINGS.sdFontFamilyName[0] != '\0') {
+      familyName = SETTINGS.sdFontFamilyName;
+    }
   }
   if (!familyName || familyName[0] == '\0') {
     return {restoreReaderFont(renderer), false};
   }
 
+  ensureRegistry();
+  const auto* family = registry_.findFamily(familyName);
+  if (!family) {
+    LOG_DBG("SDFS", "Dictionary font not found on card: %s", familyName);
+    const char* globalFamilyName = SETTINGS.dictionarySdFontFamilyName;
+    if (globalFamilyName[0] != '\0' && std::strcmp(familyName, globalFamilyName) != 0) {
+      LOG_DBG("SDFS", "Using global dictionary font while per-book font is unavailable: %s", globalFamilyName);
+      return activateDictionaryFont(renderer, globalFamilyName, SETTINGS.dictionaryFontPointSize);
+    }
+    const int readerFontId = restoreReaderFont(renderer);
+    MemoryBudget::logHeapShape("dict.font_reader_fallback");
+    return {readerFontId, false};
+  }
+
+#if CROSSPOINT_VECTOR_FONTS
+  if (family->vector) {
+    if (targetPointSize == 0) {
+      targetPointSize = (ttf_ && ttfPointSize_ != 0) ? ttfPointSize_ : SETTINGS.readerFontPointSize;
+      if (targetPointSize == 0) targetPointSize = 14;
+    }
+    targetPointSize = snapToNearestPointSize(VECTOR_READER_POINT_SIZES, std::size(VECTOR_READER_POINT_SIZES), targetPointSize);
+
+    // Reuse reader's active TTF font if family and size match
+    if (ttf_ && ttfFamily_ == family->name && ttfPointSize_ == targetPointSize) {
+      if (ttfDict_) {
+        renderer.unregisterTtfFont(ttfDictFontId_);
+        renderer.removeFont(ttfDictFontId_);
+        ttfDict_.reset();
+        ttfDictFontId_ = 0;
+        ttfDictFamily_.clear();
+        ttfDictPointSize_ = 0;
+      }
+      LOG_DBG("SDFS", "Dictionary font reusing reader TTF font %s @ %upt (id %d)", family->name.c_str(), targetPointSize, ttfFontId_);
+      return {ttfFontId_, true};
+    }
+
+    if (ttfDict_ && ttfDictFamily_ == family->name && ttfDictPointSize_ == targetPointSize) {
+      return {ttfDictFontId_, true};
+    }
+
+    if (ttfDict_) {
+      renderer.unregisterTtfFont(ttfDictFontId_);
+      renderer.removeFont(ttfDictFontId_);
+      ttfDict_.reset();
+      ttfDictFontId_ = 0;
+      ttfDictFamily_.clear();
+      ttfDictPointSize_ = 0;
+    }
+
+    const bool havePsram = heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM) > 0;
+    const size_t cacheBytes = havePsram ? 512 * 1024 : 32 * 1024;
+    const uint16_t maxGlyphs = havePsram ? 2048 : 512;
+
+    ttfDict_ = makeUniqueNoThrow<TtfEpdFont>();
+    if (!ttfDict_) {
+      LOG_ERR("SDFS", "OOM: TtfEpdFont for dictionary");
+      return {restoreReaderFont(renderer), false};
+    }
+
+    if (ttf_ && ttfFamily_ == family->name && ttfSources_[0].present) {
+      addTtfSources(*ttfDict_);
+    } else {
+      for (const auto& file : family->files) {
+        const uint8_t role = file.style < 4 ? file.style : 0;
+        openTtfSource(role, file.path);
+      }
+      if (!ttfSources_[0].present) {
+        LOG_ERR("SDFS", "Dictionary TTF: regular file failed to open: %s", family->name.c_str());
+        ttfDict_.reset();
+        return {restoreReaderFont(renderer), false};
+      }
+      addTtfSources(*ttfDict_);
+    }
+
+    if (!ttfDict_->load(targetPointSize, /*twoBit=*/true, cacheBytes, maxGlyphs)) {
+      LOG_ERR("SDFS", "Failed to load dictionary TTF face @ %upt", targetPointSize);
+      ttfDict_.reset();
+      return {restoreReaderFont(renderer), false};
+    }
+    ttfDict_->build(" ");
+    ttfDictFontId_ = computeTtfFontId((family->name + "\x01dict").c_str(), targetPointSize);
+    renderer.insertFont(ttfDictFontId_, ttfDict_->family());
+    renderer.registerTtfFont(ttfDictFontId_, ttfDict_.get());
+    ttfDictFamily_ = family->name;
+    ttfDictPointSize_ = targetPointSize;
+    LOG_DBG("SDFS", "Activated dictionary TTF font %s @ %upt (id %d)", family->name.c_str(), targetPointSize, ttfDictFontId_);
+    return {ttfDictFontId_, true};
+  }
+#endif
+
   MemoryBudget::logHeapShape("dict.font_before_activate");
   char path[160] = {};
   uint8_t selectedPointSize = 0;
-  // Prefer the actual loaded reader-file size. Built-in readers have no SD
-  // file, so use their effective physical point size instead.
   if (targetPointSize == 0) {
     targetPointSize = manager_.currentPointSize() != 0
                           ? manager_.currentPointSize()
@@ -377,10 +519,6 @@ DictionaryFontActivation SdCardFontSystem::activateDictionaryFont(GfxRenderer& r
     return {fontId, true};
   }
 
-  // A reader SD font can retain page glyphs, kerning, and advance tables after
-  // a long reading session. They are disposable at this handoff: keeping them
-  // through the headroom check makes a dictionary font appear unavailable until
-  // its book cache is deleted or the heap happens to be less fragmented.
   const int activeReaderFontId = SETTINGS.getReaderFontId();
   const auto beforeCacheRelease = MemoryBudget::snapshot();
   if (renderer.releaseSdCardFontForLowMemory(activeReaderFontId)) {
@@ -392,9 +530,6 @@ DictionaryFontActivation SdCardFontSystem::activateDictionaryFont(GfxRenderer& r
 
   auto heap = MemoryBudget::snapshot();
   if (!MemoryBudget::hasHeapForDictionarySdFont(heap)) {
-    // The reader family itself is also disposable for a dictionary swap. Retry
-    // after releasing it so its font data does not cause a false low-memory
-    // fallback.
     const auto beforeReaderUnload = heap;
     if (!manager_.currentFamilyName().empty()) manager_.unloadAll(renderer);
     loadedFontPointSize_ = 0;
@@ -411,8 +546,6 @@ DictionaryFontActivation SdCardFontSystem::activateDictionaryFont(GfxRenderer& r
     return {readerFontId, false};
   }
 
-  // unloadAll() also drops optional CJK UI sizes before the dictionary file is
-  // allocated, so both families are never resident at once.
   if (!manager_.currentFamilyName().empty()) {
     manager_.unloadAll(renderer);
   }
@@ -432,6 +565,28 @@ DictionaryFontActivation SdCardFontSystem::activateDictionaryFont(GfxRenderer& r
 }
 
 int SdCardFontSystem::restoreReaderFont(GfxRenderer& renderer) {
+#if CROSSPOINT_VECTOR_FONTS
+  if (ttfDict_) {
+    renderer.unregisterTtfFont(ttfDictFontId_);
+    renderer.removeFont(ttfDictFontId_);
+    ttfDict_.reset();
+    ttfDictFontId_ = 0;
+    ttfDictFamily_.clear();
+    ttfDictPointSize_ = 0;
+  }
+  if (ttf_ && ttfFontId_ != 0) {
+    return ttfFontId_;
+  }
+  if (SETTINGS.sdFontFamilyName[0] != '\0') {
+    ensureRegistry();
+    const auto* fam = registry_.findFamily(SETTINGS.sdFontFamilyName);
+    if (fam && fam->vector) {
+      loadTtfFamily(*fam, renderer, false);
+      if (ttfFontId_ != 0) return ttfFontId_;
+    }
+  }
+#endif
+
   const char* familyName = SETTINGS.sdFontFamilyName;
   if (!familyName || familyName[0] == '\0') {
     if (!manager_.currentFamilyName().empty()) manager_.unloadAll(renderer);
@@ -466,3 +621,230 @@ int SdCardFontSystem::restoreReaderFont(GfxRenderer& renderer) {
   MemoryBudget::logHeapShape("dict.font_after_restore");
   return fontId != 0 ? fontId : SETTINGS.getBuiltInReaderFontId();
 }
+
+#if CROSSPOINT_VECTOR_FONTS
+
+void SdCardFontSystem::freeTtfSources() {
+  for (auto& s : ttfSources_) {
+    s.bytes.clear();
+    freeink::font::PsramVector<uint8_t>().swap(s.bytes);
+    if (s.file) s.file.close();
+    s.streamed = false;
+    s.size = 0;
+    s.present = false;
+  }
+}
+
+void SdCardFontSystem::unloadTtf(GfxRenderer& renderer) {
+  if (ttfDict_) {
+    renderer.unregisterTtfFont(ttfDictFontId_);
+    renderer.removeFont(ttfDictFontId_);
+    ttfDict_.reset();
+    ttfDictFontId_ = 0;
+    ttfDictFamily_.clear();
+    ttfDictPointSize_ = 0;
+  }
+  if (ttfFamily_.empty() && ttfFontId_ == 0 && ttfUiIds_.empty()) return;
+  for (const int id : ttfUiIds_) {
+    renderer.unregisterTtfFont(id);
+    renderer.removeFont(id);
+  }
+  ttfUiIds_.clear();
+  ttfUi_.clear();
+  renderer.clearFallbackFonts();
+  if (ttfFontId_ != 0) {
+    renderer.unregisterTtfFont(ttfFontId_);
+    renderer.removeFont(ttfFontId_);
+  }
+  ttf_.reset();
+  freeTtfSources();
+  ttfFamily_.clear();
+  ttfFontId_ = 0;
+  ttfPointSize_ = 0;
+}
+
+bool SdCardFontSystem::openTtfSource(const uint8_t style, const std::string& path) {
+  if (style >= 4) return false;
+  static constexpr size_t kResidentMax = 6 * 1024 * 1024;
+  static constexpr size_t kInternalHeadroom = 96 * 1024;
+  HalFile f = Storage.open(path.c_str());
+  if (!f) {
+    LOG_ERR("SDFS", "Failed to open TTF: %s", path.c_str());
+    return false;
+  }
+  const size_t len = f.size();
+  if (len == 0) {
+    LOG_ERR("SDFS", "Empty TTF: %s", path.c_str());
+    f.close();
+    return false;
+  }
+  TtfSource& s = ttfSources_[style];
+  bool resident = len <= kResidentMax;
+  if (resident && heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM) < len) {
+    const size_t internalFree = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    if (internalFree < len + kInternalHeadroom) {
+      LOG_DBG("SDFS", "TTF %s (%u KB) too large for DRAM (largest block %u KB), streaming", path.c_str(),
+              static_cast<unsigned>(len / 1024), static_cast<unsigned>(internalFree / 1024));
+      resident = false;
+    }
+  }
+  if (resident) {
+    s.bytes.resize(len);
+    const int got = f.read(s.bytes.data(), len);
+    f.close();
+    if (static_cast<size_t>(got) != len) {
+      LOG_ERR("SDFS", "Short read on TTF %s (%d/%u)", path.c_str(), got, static_cast<unsigned>(len));
+      s.bytes.clear();
+      return false;
+    }
+    s.streamed = false;
+  } else {
+    s.file = std::move(f);
+    s.streamed = true;
+    static constexpr size_t kStreamPrefix = 1024 * 1024;
+    const size_t prefix = len < kStreamPrefix ? len : kStreamPrefix;
+    if (heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM) > prefix + 256 * 1024) {
+      s.bytes.resize(prefix);
+      if (s.file.seek(0) && static_cast<size_t>(s.file.read(s.bytes.data(), prefix)) == prefix) {
+        LOG_DBG("SDFS", "Cached %u KB TTF prefix in PSRAM", static_cast<unsigned>(prefix / 1024));
+      } else {
+        s.bytes.clear();
+      }
+    }
+    LOG_DBG("SDFS", "Streaming TTF %s (%u KB) from SD", path.c_str(), static_cast<unsigned>(len / 1024));
+  }
+  s.size = static_cast<unsigned long>(len);
+  s.present = true;
+  return true;
+}
+
+unsigned long SdCardFontSystem::prefixRead(void* ctx, const unsigned long offset, unsigned char* buffer,
+                                           const unsigned long count) {
+  auto* s = static_cast<TtfSource*>(ctx);
+  const unsigned long cached = s->bytes.size();
+  if (offset < cached) {
+    const unsigned long fromCache = (offset + count <= cached) ? count : cached - offset;
+    if (count == 0) return 0;
+    memcpy(buffer, s->bytes.data() + offset, fromCache);
+    if (fromCache == count) return count;
+    return fromCache +
+           SdCardFontRegistry::halFileRead(&s->file, offset + fromCache, buffer + fromCache, count - fromCache);
+  }
+  return SdCardFontRegistry::halFileRead(&s->file, offset, buffer, count);
+}
+
+void SdCardFontSystem::addTtfSources(TtfEpdFont& font) {
+  for (uint8_t st = 0; st < 4; ++st) {
+    TtfSource& s = ttfSources_[st];
+    if (!s.present) continue;
+    if (s.streamed) {
+      font.addStreamSource(st, &SdCardFontSystem::prefixRead, &s, s.size);
+    } else {
+      font.addResidentSource(st, s.bytes.data(), static_cast<uint32_t>(s.bytes.size()));
+    }
+  }
+}
+
+void SdCardFontSystem::setupTtfUiFallbacks(GfxRenderer& renderer) {
+  if (ttfFamily_.empty()) return;
+  static constexpr size_t kUiFallbackMinInternalHeap = 160 * 1024;
+  for (const auto& ui : kUiFontSizes) {
+    if (heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM) == 0) {
+      const size_t internalFree = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+      if (internalFree < kUiFallbackMinInternalHeap) {
+        LOG_DBG("SDFS", "Skipping TTF UI fallback @%upt (%u KB internal free)", ui.pointSize,
+                static_cast<unsigned>(internalFree / 1024));
+        continue;
+      }
+    }
+    auto f = makeUniqueNoThrow<TtfEpdFont>();
+    if (!f) {
+      LOG_ERR("SDFS", "OOM: TtfEpdFont for UI fallback @%upt", ui.pointSize);
+      continue;
+    }
+    addTtfSources(*f);
+    const bool ok = f->load(ui.pointSize, /*twoBit=*/true, /*glyphCacheBytes=*/16 * 1024, /*maxGlyphs=*/384);
+    if (!ok) continue;
+    LOG_DBG("SDFS", "TTF UI fallback @%upt loaded (heap free %u)", ui.pointSize, (unsigned)ESP.getFreeHeap());
+    const int id = computeTtfFontId((ttfFamily_ + "\x01ui").c_str(), ui.pointSize);
+    renderer.insertFont(id, f->family());
+    renderer.registerTtfFont(id, f.get());
+    renderer.setFallbackFont(ui.fontId, id);
+    ttfUiIds_.push_back(id);
+    ttfUi_.push_back(std::move(f));
+  }
+}
+
+void SdCardFontSystem::loadTtfFamily(const SdCardFontFamilyInfo& family, GfxRenderer& renderer,
+                                     const bool registryWasDirty) {
+  SETTINGS.readerFontPointSize =
+      snapToNearestPointSize(VECTOR_READER_POINT_SIZES, std::size(VECTOR_READER_POINT_SIZES), SETTINGS.readerFontPointSize);
+  const uint8_t size = SETTINGS.readerFontPointSize;
+
+  if (!registryWasDirty && ttf_ && ttfFamily_ == family.name && ttfPointSize_ == size) return;
+
+  const bool havePsram = heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM) > 0;
+  const size_t cacheBytes = havePsram ? 1024 * 1024 : 32 * 1024;
+  const uint16_t maxGlyphs = havePsram ? 4096 : 768;
+
+  if (!registryWasDirty && ttf_ && ttfFamily_ == family.name) {
+    renderer.unregisterTtfFont(ttfFontId_);
+    renderer.removeFont(ttfFontId_);
+    if (ttf_->load(size, /*twoBit=*/true, cacheBytes, maxGlyphs)) {
+      ttf_->build(" ");
+      ttfFontId_ = computeTtfFontId(family.name.c_str(), size);
+      renderer.insertFont(ttfFontId_, ttf_->family());
+      renderer.registerTtfFont(ttfFontId_, ttf_.get());
+      ttfPointSize_ = size;
+      return;
+    }
+  }
+
+  unloadTtf(renderer);
+
+  if (family.files.empty()) {
+    LOG_ERR("SDFS", "Vector family %s has no file", family.name.c_str());
+    SETTINGS.sdFontFamilyName[0] = '\0';
+    persistSettingsChange();
+    return;
+  }
+
+  for (const auto& file : family.files) {
+    const uint8_t role = file.style < 4 ? file.style : 0;
+    if (ttfSources_[role].present) continue;
+    openTtfSource(role, file.path);
+  }
+  if (!ttfSources_[0].present) {
+    LOG_ERR("SDFS", "Vector family %s: regular file failed to open (keeping selection)", family.name.c_str());
+    freeTtfSources();
+    return;
+  }
+
+  ttf_ = makeUniqueNoThrow<TtfEpdFont>();
+  if (!ttf_) {
+    LOG_ERR("SDFS", "OOM: TtfEpdFont for %s", family.name.c_str());
+    freeTtfSources();
+    return;
+  }
+  addTtfSources(*ttf_);
+  const bool ok = ttf_->load(size, /*twoBit=*/true, cacheBytes, maxGlyphs);
+  if (!ok) {
+    LOG_ERR("SDFS", "FreeInkFont could not parse %s (keeping selection)", family.name.c_str());
+    ttf_.reset();
+    freeTtfSources();
+    return;
+  }
+  ttf_->build(" ");
+
+  ttfFontId_ = computeTtfFontId(family.name.c_str(), size);
+  renderer.insertFont(ttfFontId_, ttf_->family());
+  renderer.registerTtfFont(ttfFontId_, ttf_.get());
+  ttfFamily_ = family.name;
+  ttfPointSize_ = size;
+  LOG_DBG("SDFS", "Reader TTF face loaded (heap free %u, max block %u)", (unsigned)ESP.getFreeHeap(),
+          (unsigned)ESP.getMaxAllocHeap());
+  setupTtfUiFallbacks(renderer);
+  LOG_DBG("SDFS", "Loaded TTF font: %s @ %upt (id %d)", family.name.c_str(), size, ttfFontId_);
+}
+
+#endif  // CROSSPOINT_VECTOR_FONTS

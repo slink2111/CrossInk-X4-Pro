@@ -147,22 +147,13 @@ void ReaderOptionsActivity::rebuildSettingsList() {
       dictionaryFontFamilyName[0] != '\0' ? dictionaryFontFamilyName : SETTINGS.sdFontFamilyName;
   if (dictionarySizeFamily[0] != '\0') {
     if (const auto* family = sdFontSystem.registry().findFamily(dictionarySizeFamily)) {
-      dictionaryFontSize.enumStringValues.reserve(family->files.size() + 1);
-      dictionaryFontSize.enumRawValues.reserve(family->files.size() + 1);
-      // Build a sorted, unique list directly from the catalog already resident
-      // for this screen. Dictionary lookup itself never retains a size list.
-      for (const auto& file : family->files) {
-        if (file.style != 0 ||
-            std::find(dictionaryFontSize.enumRawValues.begin(), dictionaryFontSize.enumRawValues.end(),
-                      file.pointSize) != dictionaryFontSize.enumRawValues.end()) {
-          continue;
-        }
-        const auto insertAt = std::lower_bound(dictionaryFontSize.enumRawValues.begin() + 1,
-                                               dictionaryFontSize.enumRawValues.end(), file.pointSize);
-        const size_t index = static_cast<size_t>(std::distance(dictionaryFontSize.enumRawValues.begin(), insertAt));
-        dictionaryFontSize.enumRawValues.insert(insertAt, file.pointSize);
-        dictionaryFontSize.enumStringValues.insert(dictionaryFontSize.enumStringValues.begin() + index,
-                                                   fontSizePointLabel(file.pointSize));
+      const auto sizes = family->availableSizes();
+      dictionaryFontSize.enumStringValues.reserve(sizes.size() + 1);
+      dictionaryFontSize.enumRawValues.reserve(sizes.size() + 1);
+      for (const uint8_t pointSize : sizes) {
+        if (pointSize == 0) continue;
+        dictionaryFontSize.enumRawValues.push_back(pointSize);
+        dictionaryFontSize.enumStringValues.push_back(fontSizePointLabel(pointSize));
       }
     }
   }

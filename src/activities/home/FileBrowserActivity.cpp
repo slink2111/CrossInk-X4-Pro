@@ -1205,8 +1205,9 @@ void FileBrowserActivity::buildListScreen(UiApp::ScreenType& screen) {
     const int16_t iconX = static_cast<int16_t>(settingsRect.x + (settingsRect.width - icon.width) / 2);
     const int16_t iconY = static_cast<int16_t>(backLayout.iconRect.y + TouchHeaderBackButton::TITLE_VERTICAL_OFFSET +
                                                (backLayout.iconRect.height - icon.height) / 2);
-    screen.target().bitmap(fui::Rect{iconX, iconY, icon.width, icon.height}, icon, fui::BitmapMode::Center,
-                           fui::Paint::solid(fui::Color::Black));
+    screen.target().bitmap(
+        fui::Rect{iconX, iconY, static_cast<int16_t>(icon.width), static_cast<int16_t>(icon.height)}, icon,
+        fui::BitmapMode::Center, fui::Paint::solid(fui::Color::Black));
   }
   screen.spacer(static_cast<int16_t>(metrics.verticalSpacing));
 

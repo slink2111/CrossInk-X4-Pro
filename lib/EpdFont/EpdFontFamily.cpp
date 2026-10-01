@@ -1,4 +1,5 @@
 #include "EpdFontFamily.h"
+#include "GlyphFallback.h"
 
 #include <Utf8.h>
 
@@ -207,6 +208,20 @@ EpdFontFamily::GlyphData EpdFontFamily::getGlyphData(const uint32_t cp, const St
     return glyphData;
   }
 
+  const uint32_t aliasCp = syntheticGlyph::aliasCodepoint(cp);
+  if (aliasCp != cp) {
+    if (const GlyphData glyphData = findGlyphData(aliasCp, style); glyphData.glyph) {
+      return glyphData;
+    }
+  }
+
+  const uint32_t substitute = fallbackGlyphCodepoint(cp);
+  if (substitute != cp) {
+    if (const GlyphData glyphData = findGlyphData(substitute, style); glyphData.glyph) {
+      return glyphData;
+    }
+  }
+
   if (cp != REPLACEMENT_GLYPH) {
     return getGlyphData(REPLACEMENT_GLYPH, style);
   }
@@ -220,8 +235,12 @@ const EpdGlyph* EpdFontFamily::getGlyph(const uint32_t cp, const Style style) co
 uint32_t EpdFontFamily::getFallbackCodepoint(const uint32_t cp, const Style style) const {
   if (findGlyphData(cp, style).glyph) return cp;
   const uint32_t aliasCp = syntheticGlyph::aliasCodepoint(cp);
-  if (aliasCp != cp) {
-    return findGlyphData(aliasCp, style).glyph ? aliasCp : REPLACEMENT_GLYPH;
+  if (aliasCp != cp && findGlyphData(aliasCp, style).glyph) {
+    return aliasCp;
+  }
+  const uint32_t substitute = fallbackGlyphCodepoint(cp);
+  if (substitute != cp && findGlyphData(substitute, style).glyph) {
+    return substitute;
   }
   if (syntheticGlyph::isSpaceFallback(cp)) return cp;
   if (syntheticGlyph::isSolid(cp) || syntheticGlyph::isGreekFallback(cp)) return cp;
@@ -229,7 +248,12 @@ uint32_t EpdFontFamily::getFallbackCodepoint(const uint32_t cp, const Style styl
 }
 
 bool EpdFontFamily::hasCodepoint(const uint32_t cp, const Style style) const {
-  return getFont(style)->hasCodepoint(cp) || (fallback && fallback->hasCodepoint(cp));
+  if (getFont(style)->hasCodepoint(cp) || (fallback && fallback->hasCodepoint(cp))) return true;
+  const uint32_t substitute = fallbackGlyphCodepoint(cp);
+  if (substitute != cp) {
+    return hasCodepoint(substitute, style);
+  }
+  return false;
 }
 
 int8_t EpdFontFamily::getKerning(const uint32_t leftCp, const uint32_t rightCp, const Style style) const {

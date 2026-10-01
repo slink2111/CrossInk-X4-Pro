@@ -26,6 +26,15 @@
 #include "activities/reader/TouchReaderPreviewModel.h"
 #endif
 
+struct ReaderViewportLayout {
+  int marginTop = 0;
+  int marginRight = 0;
+  int marginBottom = 0;
+  int marginLeft = 0;
+  uint16_t viewportWidth = 0;
+  uint16_t viewportHeight = 0;
+};
+
 struct ToastRect {
   int x = 0;
   int y = 0;
@@ -322,6 +331,35 @@ class EpubReaderActivity final : public Activity {
   void silentIndexNextChapterIfNeeded(uint16_t viewportWidth, uint16_t viewportHeight);
   void cancelSilentPrefetchForInput();
   bool restoreCurrentPageBufferAfterSilentIndex();
+
+  // Background A: next-page pre-rendering
+  struct PreRenderedPage {
+    bool ready = false;
+    int spineIndex = -1;
+    int pageIndex = -1;
+    unsigned long renderDurationMs = 0UL;
+    unsigned long completedAtMs = 0UL;
+  };
+  PreRenderedPage preRenderedPage;
+  bool pendingPreRender = false;
+  bool usePreRenderedBuffer = false;
+
+  void renderPreRenderPass(const ReaderViewportLayout& layout);
+  bool renderBufferDisplayPass(const ReaderViewportLayout& layout);
+  void renderPageContentOnly(const Page& page, int fontId, const ReaderViewportLayout& layout);
+  void restoreCurrentPageToBufferIfPreRendered();
+
+  // Background B: next-section pre-indexing
+  enum class BackgroundBuildState : uint8_t { Probe, WaitHeap, Building, Settled };
+  BackgroundBuildState backgroundBuildState_ = BackgroundBuildState::Probe;
+  int backgroundBuildSpineIndex_ = -1;
+  int backgroundBuildBaseSpine_ = -1;
+  int backgroundWindowPagesBuilt_ = 0;
+  std::unique_ptr<Section> backgroundSection_;
+  static constexpr int BG_BUILD_LOOKAHEAD_PAGES = 50;
+  static constexpr unsigned long BG_BUILD_QUIET_MS = 1500;
+  void stepBackgroundSectionBuild();
+  void resetBackgroundBuild();
   // Larger batches are reserved for non-interactive work such as sleep-page preparation.
   static constexpr int BUILD_PAGES_PER_CHUNK = 8;
   // Interactive builds stop as soon as the requested page is ready and give the
@@ -505,7 +543,7 @@ class EpubReaderActivity final : public Activity {
   void onInputLockChanged(bool locked) override;
   void onUserInput() override;
   bool handleQuickLockUnlock(QuickLockTrigger trigger) override;
-  bool canSnapshotForSleepOverlay() const override { return true; }
+  bool canSnapshotForSleepOverlay() const override;
   bool allowPowerAsConfirmInReaderMode() const override { return quickActionsPopup.isActive(); }
   bool blocksGlobalInput() const override { return quickActionsPopup.isActive(); }
   bool handleShortcutAction(CrossPointSettings::SHORT_PWRBTN action) override;

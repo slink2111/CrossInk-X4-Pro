@@ -1,4 +1,5 @@
 #include "EpdFont.h"
+#include "GlyphFallback.h"
 
 #include <Utf8.h>
 
@@ -117,6 +118,9 @@ int8_t EpdFont::getKerning(const uint32_t leftCp, const uint32_t rightCp) const 
   if (utf8IsCjkBreakable(leftCp) || utf8IsCjkBreakable(rightCp)) {
     return 0;
   }
+  if (data->kernHandler) {
+    return data->kernHandler(data->glyphMissCtx, leftCp, rightCp);
+  }
   if (!data->kernMatrix && !data->kernRowOffsets) {
     return 0;
   }
@@ -230,6 +234,11 @@ const EpdGlyph* EpdFont::findGlyph(const uint32_t cp) const {
     }
   }
 
+  // Codepoint not in interval table — try on-demand loading (SD card fonts & vector TTF fonts).
+  if (data->glyphMissHandler) {
+    return data->glyphMissHandler(data->glyphMissCtx, cp);
+  }
+
   return nullptr;
 }
 
@@ -238,10 +247,11 @@ const EpdGlyph* EpdFont::getGlyph(const uint32_t cp) const {
     return glyph;
   }
 
-  // Codepoint not in interval table — try on-demand loading (SD card fonts).
-  if (data->glyphMissHandler) {
-    const EpdGlyph* loaded = data->glyphMissHandler(data->glyphMissCtx, cp);
-    if (loaded) return loaded;
+  const uint32_t substitute = fallbackGlyphCodepoint(cp);
+  if (substitute != cp) {
+    if (const EpdGlyph* glyph = findGlyph(substitute)) {
+      return glyph;
+    }
   }
 
   if (cp != REPLACEMENT_GLYPH) {
@@ -263,7 +273,12 @@ bool EpdFont::hasCodepoint(const uint32_t cp) const {
   // Interval table miss. SD card fonts only keep the current page's glyphs in
   // their interval table — ask their full RAM-resident coverage index instead.
   if (data->coverageHandler) {
-    return data->coverageHandler(data->glyphMissCtx, cp);
+    if (data->coverageHandler(data->glyphMissCtx, cp)) return true;
+  }
+
+  const uint32_t substitute = fallbackGlyphCodepoint(cp);
+  if (substitute != cp) {
+    return hasCodepoint(substitute);
   }
   return false;
 }

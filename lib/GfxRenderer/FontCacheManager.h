@@ -7,16 +7,19 @@
 
 class FontDecompressor;
 class SdCardFont;
+class TtfEpdFont;
 
 class FontCacheManager {
  public:
   enum class PreparationPolicy : uint8_t { Normal, DictionaryLean };
 
-  FontCacheManager(const std::map<int, EpdFontFamily>& fontMap, const std::map<int, SdCardFont*>& sdCardFonts);
+  FontCacheManager(const std::map<int, EpdFontFamily>& fontMap, const std::map<int, SdCardFont*>& sdCardFonts,
+                   const std::map<int, TtfEpdFont*>& ttfFonts);
 
   void setFontDecompressor(FontDecompressor* d);
 
   void clearCache();
+  void releaseSdFontCaches();
   bool prewarmCache(int fontId, const char* utf8Text, uint8_t styleMask = 0x0F,
                     PreparationPolicy policy = PreparationPolicy::Normal);
   void logStats(const char* label = "render");
@@ -50,6 +53,7 @@ class FontCacheManager {
  private:
   const std::map<int, EpdFontFamily>& fontMap_;
   const std::map<int, SdCardFont*>& sdCardFonts_;
+  [[maybe_unused]] const std::map<int, TtfEpdFont*>& ttfFonts_;
   FontDecompressor* fontDecompressor_ = nullptr;
 
   enum class ScanMode : uint8_t { None, Scanning };

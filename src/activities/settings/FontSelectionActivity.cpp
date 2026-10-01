@@ -226,8 +226,14 @@ void FontSelectionActivity::handleSelection() {
     const int sdIdx = font.settingIndex - CrossPointSettings::BUILTIN_FONT_COUNT;
     const auto& families = registry_->getFamilies();
     if (sdIdx < static_cast<int>(families.size())) {
-      const std::vector<uint8_t> sizes = families[sdIdx].availableSizes();
-      SETTINGS.readerFontPointSize = sizes[closestSizeIndex(sizes, targetPointSize)];
+      if (families[sdIdx].vector) {
+        SETTINGS.readerFontPointSize = std::clamp<uint8_t>(targetPointSize, 8, 22);
+      } else {
+        const std::vector<uint8_t> sizes = families[sdIdx].availableSizes();
+        if (!sizes.empty()) {
+          SETTINGS.readerFontPointSize = sizes[closestSizeIndex(sizes, targetPointSize)];
+        }
+      }
       strncpy(SETTINGS.sdFontFamilyName, families[sdIdx].name.c_str(), sizeof(SETTINGS.sdFontFamilyName) - 1);
       SETTINGS.sdFontFamilyName[sizeof(SETTINGS.sdFontFamilyName) - 1] = '\0';
     }

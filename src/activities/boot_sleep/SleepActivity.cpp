@@ -10,6 +10,9 @@
 #include <HalStorage.h>
 #include <I18n.h>
 #include <PNGdec.h>
+#ifdef local
+#undef local
+#endif
 #include <Xtc.h>
 
 #include <algorithm>

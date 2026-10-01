@@ -1,13 +1,24 @@
 #pragma once
 
+#include <HalStorage.h>  // HalFile (kept open for streamed TTFs)
 #include <SdCardFontManager.h>
 #include <SdCardFontRegistry.h>
+#include <VectorFontSupport.h>
+
+#if CROSSPOINT_VECTOR_FONTS
+#include <FontPsram.h>  // PsramVector for resident TTF bytes
+#endif
 
 #include <atomic>
+#include <cstdint>
+#include <memory>
+#include <string>
+#include <vector>
 
 #include "ReaderFontSizeStep.h"
 
 class GfxRenderer;
+class TtfEpdFont;
 
 struct DictionaryFontActivation {
   int fontId = 0;
@@ -20,9 +31,14 @@ class SdCardFontSystem {
  public:
   using SettingsPersistenceCallback = void (*)(void* context);
 
-  SdCardFontSystem() = default;
+  // Constructor and destructor are out-of-line (defined in .cpp where
+  // TtfEpdFont is a complete type) so std::unique_ptr<TtfEpdFont> works
+  // with only a forward declaration visible here.
+  SdCardFontSystem();
+  ~SdCardFontSystem();
   SdCardFontSystem(const SdCardFontSystem&) = delete;
   SdCardFontSystem& operator=(const SdCardFontSystem&) = delete;
+
   /// Register the font resolver and load a saved SD font selection. When the
   /// built-in font is selected, discovery stays deferred until font metadata
   /// is explicitly requested.
@@ -103,6 +119,17 @@ class SdCardFontSystem {
   void setupUiFallbacks(GfxRenderer& renderer);
   void setupUiFallbacksDirect(GfxRenderer& renderer, const char* familyName);
 
+#if CROSSPOINT_VECTOR_FONTS
+  // --- Vector (.ttf/.otf) font path (FreeInkFont via TtfEpdFont) -------------
+  void loadTtfFamily(const SdCardFontFamilyInfo& family, GfxRenderer& renderer, bool registryWasDirty);
+  void unloadTtf(GfxRenderer& renderer);
+  void setupTtfUiFallbacks(GfxRenderer& renderer);
+  bool openTtfSource(uint8_t style, const std::string& path);
+  void addTtfSources(TtfEpdFont& font);
+  void freeTtfSources();
+  static unsigned long prefixRead(void* ctx, unsigned long offset, unsigned char* buffer, unsigned long count);
+#endif  // CROSSPOINT_VECTOR_FONTS
+
   SdCardFontRegistry registry_;
   SdCardFontManager manager_;
   std::atomic<bool> registryDirty_{false};
@@ -110,6 +137,32 @@ class SdCardFontSystem {
   uint8_t loadedFontPointSize_ = 0;
   SettingsPersistenceCallback settingsPersistenceCallback_ = nullptr;
   void* settingsPersistenceContext_ = nullptr;
+
+#if CROSSPOINT_VECTOR_FONTS
+  struct TtfSource {
+    freeink::font::PsramVector<uint8_t> bytes;
+    HalFile file;  // open handle (streamed form)
+    bool streamed = false;
+    unsigned long size = 0;
+    bool present = false;
+  };
+
+  // Active TTF font (at most one reader-size vector family loaded at a time).
+  std::unique_ptr<TtfEpdFont> ttf_;
+  // Up to 4 style sources: 0=regular (required), 1=bold, 2=italic, 3=bold-italic.
+  TtfSource ttfSources_[4];
+  std::string ttfFamily_;     // loaded vector family name ("" = none)
+  int ttfFontId_ = 0;         // renderer font id for ttf_ (0 = none)
+  uint8_t ttfPointSize_ = 0;  // size ttf_ was built at
+  // UI-size TTF fallbacks (share ttfSources_); parallel to their renderer font ids.
+  std::vector<std::unique_ptr<TtfEpdFont>> ttfUi_;
+  std::vector<int> ttfUiIds_;
+  // Dictionary TTF font (when different size from reader)
+  std::unique_ptr<TtfEpdFont> ttfDict_;
+  std::string ttfDictFamily_;
+  int ttfDictFontId_ = 0;
+  uint8_t ttfDictPointSize_ = 0;
+#endif  // CROSSPOINT_VECTOR_FONTS
 };
 
 // Global SD card font system instance (defined in main.cpp).

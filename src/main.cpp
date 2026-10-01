@@ -126,7 +126,7 @@ ActivityManager activityManager(renderer, mappedInputManager);
 FontDecompressor fontDecompressor;
 SdCardFontSystem sdFontSystem;
 DictionaryRegistry dictionaryRegistry;
-FontCacheManager fontCacheManager(renderer.getFontMap(), renderer.getSdCardFonts());
+FontCacheManager fontCacheManager(renderer.getFontMap(), renderer.getSdCardFonts(), renderer.getTtfFonts());
 static unsigned long allowSleepAt = 0;
 static ButtonShortcutController buttonShortcutController;
 static unsigned long lastX4ProHomeKeyTapAt = 0;

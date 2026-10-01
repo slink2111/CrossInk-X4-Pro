@@ -894,15 +894,6 @@ uint8_t effectiveReaderLeftMargin() {
              : SETTINGS.screenMarginHorizontal;
 }
 
-struct ReaderViewportLayout {
-  int marginTop;
-  int marginRight;
-  int marginBottom;
-  int marginLeft;
-  uint16_t viewportWidth;
-  uint16_t viewportHeight;
-};
-
 ReaderViewportLayout computeReaderViewportLayout(GfxRenderer& renderer, const bool automaticPageTurnActive,
                                                  const bool showFootnoteHeader = false,
                                                  const bool statusBarVisible = true) {
@@ -2073,6 +2064,10 @@ void EpubReaderActivity::endGlobalSettingsEditForBookReader(void* ctx) {
 void EpubReaderActivity::onEnter() {
   Activity::onEnter();
   pageLoadRetryCount = 0;
+  preRenderedPage = {};
+  pendingPreRender = false;
+  usePreRenderedBuffer = false;
+  resetBackgroundBuild();
 
   MemoryBudget::logEpubHeapPools("reader enter");
 
@@ -2219,6 +2214,8 @@ void EpubReaderActivity::onExit() {
   sdFontSystem.setSettingsPersistenceCallback(nullptr, nullptr);
   clearPendingManualPageTurns();
   mappedInput.setReaderTouchscreenOverride(false);
+  restoreCurrentPageToBufferIfPreRendered();
+  resetBackgroundBuild();
 
   // The image callbacks hold the Epub as a raw context pointer.
   ImageBlock::setExtractor(nullptr, nullptr, nullptr);
@@ -2486,7 +2483,9 @@ void EpubReaderActivity::idlePrewarmNextPage() {
   const int renderFontId = activeSectionFontId != 0 ? activeSectionFontId : SETTINGS.getReaderFontId();
   if (!renderer.isSdCardFont(renderFontId) ||
       (idlePrewarmSpine == currentSpineIndex && idlePrewarmPage == section->currentPage &&
-       idlePrewarmFontId == renderFontId)) {
+       idlePrewarmFontId == renderFontId) ||
+      (preRenderedPage.ready && preRenderedPage.spineIndex == currentSpineIndex &&
+       preRenderedPage.pageIndex == section->currentPage + 1)) {
     return;
   }
 
@@ -3085,6 +3084,7 @@ void EpubReaderActivity::loop() {
       return;
     }
     idlePrewarmNextPage();
+    stepBackgroundSectionBuild();
     return;
   }
 
@@ -3225,6 +3225,10 @@ void EpubReaderActivity::jumpToPercent(int percent) {
   }
 
   clearPendingManualPageTurns();
+  preRenderedPage.ready = false;
+  pendingPreRender = false;
+  usePreRenderedBuffer = false;
+  resetBackgroundBuild();
 
   // BookMetadataCache uses a shared seek-based FsFile for spine metadata lookups.
   // Hold the render/file mutex for the full jump calculation so menu-driven jumps
@@ -4101,6 +4105,10 @@ bool EpubReaderActivity::restorePendingOverlay(const PendingOverlayResume& resum
 
 void EpubReaderActivity::reindexCurrentSection() {
   clearPendingManualPageTurns();
+  preRenderedPage.ready = false;
+  pendingPreRender = false;
+  usePreRenderedBuffer = false;
+  resetBackgroundBuild();
   const bool restorePreviewPosition = activeFootnotePreview;
   {
     RenderLock lock(*this);
@@ -5216,6 +5224,10 @@ void EpubReaderActivity::applyOrientation(const uint8_t orientation) {
   }
 
   clearPendingManualPageTurns();
+  preRenderedPage.ready = false;
+  pendingPreRender = false;
+  usePreRenderedBuffer = false;
+  resetBackgroundBuild();
 
   {
     RenderLock lock(*this);
@@ -5346,6 +5358,9 @@ void EpubReaderActivity::cancelSilentNextChapterPrefetchForForwardTurn() {
 void EpubReaderActivity::pageTurn(bool isForwardTurn, const char* source) {
   pageLoadRetryCount = 0;
   if (activeFootnotePreview) {
+    preRenderedPage.ready = false;
+    pendingPreRender = false;
+    usePreRenderedBuffer = false;
     if (isForwardTurn) {
       if (section && section->currentPage < section->pageCount - 1) {
         section->currentPage++;
@@ -5369,6 +5384,29 @@ void EpubReaderActivity::pageTurn(bool isForwardTurn, const char* source) {
     recordCurrentPageReadingTime(source);
     const bool exitingChapter =
         section && !section->isBuilding() && section->pageCount > 0 && section->currentPage >= section->pageCount - 1;
+
+    // Fast path: if the next page was already pre-rendered in background into the framebuffer
+    if (section && preRenderedPage.ready && preRenderedPage.spineIndex == currentSpineIndex &&
+        preRenderedPage.pageIndex == section->currentPage + 1) {
+      section->currentPage = preRenderedPage.pageIndex;
+      usePreRenderedBuffer = true;
+      preRenderedPage.ready = false;
+      if (shouldRecordForwardRead) {
+        if (!exitingChapter) {
+          recordForwardPagePaceSample(forwardReadSeconds, source);
+        }
+        stats.totalPagesTurned++;
+        globalStats.totalPagesTurned++;
+      }
+      lastPageTurnTime = millis();
+      requestUpdate();
+      return;
+    }
+
+    preRenderedPage.ready = false;
+    pendingPreRender = false;
+    usePreRenderedBuffer = false;
+
     // Advance within the section while there are (or may still be) more pages: either a built
     // page ahead, or the section is still building (windowed), in which case more pages exist
     // beyond the current watermark and render()'s ensure-built pump will lay them out. Only when
@@ -5400,6 +5438,9 @@ void EpubReaderActivity::pageTurn(bool isForwardTurn, const char* source) {
       globalStats.totalPagesTurned++;
     }
   } else {
+    preRenderedPage.ready = false;
+    pendingPreRender = false;
+    usePreRenderedBuffer = false;
     recordCurrentPageReadingTime(source);
     armReadingPaceWarmup("back_page");
     if (section->currentPage > 0) {
@@ -5536,6 +5577,30 @@ void EpubReaderActivity::render(RenderLock&& lock) {
   buildViewportWidth = viewportWidth;
   buildViewportHeight = viewportHeight;
 
+  // Fast display pass: frame buffer already holds pre-rendered content from Background A
+  if (usePreRenderedBuffer && section) {
+    usePreRenderedBuffer = false;
+    if (renderBufferDisplayPass(layout)) {
+      showPendingSyncSaveError();
+      return;
+    }
+  }
+  usePreRenderedBuffer = false;
+
+  // Background A: render next page content into the frame buffer during idle
+  if (pendingPreRender) {
+    pendingPreRender = false;
+    if (section && section->currentPage + 1 < section->pageCount && !activeFootnotePreview) {
+      renderPreRenderPass(layout);
+    }
+    return;
+  }
+
+  // Any other normal pass overwrites the framebuffer, so pre-rendered buffer is no longer valid
+  if (preRenderedPage.ready) {
+    preRenderedPage.ready = false;
+  }
+
   if (!section) {
     preparedNextSpineIndex = -1;
     // Section loading/indexing can need a large contiguous block. Return the
@@ -5575,7 +5640,21 @@ void EpubReaderActivity::render(RenderLock&& lock) {
       return true;
     };
 
-    loadedSection = loadSectionWithFont(readerFontId, selectedRenderMode);
+    if (backgroundSection_ && backgroundBuildSpineIndex_ == currentSpineIndex && !buildingFootnotePreview) {
+      LOG_INF("ERS", "Adopting background section for spine %d (pages=%u, isBuilding=%d)",
+              currentSpineIndex, backgroundSection_->pageCount, backgroundSection_->isBuilding());
+      section = std::move(backgroundSection_);
+      resetBackgroundBuild();
+      activeSectionFontId = readerFontId;
+      const ReaderRenderSpec spec = readerRenderSpecForProfile(
+          readerFontId, viewportWidth, viewportHeight, buildProfileForRenderMode(selectedRenderMode));
+      activeSectionLayoutSignature = readerRenderSpecSignature(spec);
+      usedRenderMode = selectedRenderMode;
+      loadedSection = true;
+    } else {
+      resetBackgroundBuild();
+      loadedSection = loadSectionWithFont(readerFontId, selectedRenderMode);
+    }
     if (loadedSection && !pendingRelayoutReposition) {
       cachedChapterTotalPageCount = 0;
     }
@@ -6176,14 +6255,18 @@ void EpubReaderActivity::render(RenderLock&& lock) {
         progressSaveRequiredAfterRelayout = false;
       }
     }
-    silentIndexNextChapterIfNeeded(viewportWidth, viewportHeight);
     queueCompletionPromptIfNeeded();
+    if (section && section->currentPage + 1 < section->pageCount) {
+      pendingPreRender = true;
+      requestUpdate();
+    }
   }
 
   showPendingSyncSaveError();
 
   if (pendingScreenshot) {
     pendingScreenshot = false;
+    restoreCurrentPageToBufferIfPreRendered();
     ScreenshotUtil::takeScreenshot(renderer);
   }
 }
@@ -7425,6 +7508,11 @@ void EpubReaderActivity::navigateToHref(const std::string& hrefStr, const bool s
   pageLoadRetryCount = 0;
   if (!epub) return;
 
+  preRenderedPage.ready = false;
+  pendingPreRender = false;
+  usePreRenderedBuffer = false;
+  resetBackgroundBuild();
+
   // Extract fragment anchor (e.g. "#note1" or "chapter2.xhtml#note1")
   std::string anchor;
   const auto hashPos = hrefStr.find('#');
@@ -7493,6 +7581,10 @@ void EpubReaderActivity::restoreSavedPosition() {
   pageLoadRetryCount = 0;
   if (footnoteDepth <= 0) return;
   clearPendingManualPageTurns();
+  preRenderedPage.ready = false;
+  pendingPreRender = false;
+  usePreRenderedBuffer = false;
+  resetBackgroundBuild();
   footnoteDepth--;
   const auto& pos = savedPositions[footnoteDepth];
 
@@ -7507,6 +7599,300 @@ void EpubReaderActivity::restoreSavedPosition() {
   armReadingPaceWarmup("saved_position_restore");
   requestUpdate();
 }
+
+bool EpubReaderActivity::canSnapshotForSleepOverlay() const {
+  const_cast<EpubReaderActivity*>(this)->restoreCurrentPageToBufferIfPreRendered();
+  return true;
+}
+
+void EpubReaderActivity::renderPageContentOnly(const Page& page, const int fontId, const ReaderViewportLayout& layout) {
+  if (auto* fcm = renderer.getFontCacheManager()) {
+    FontCacheManager::PrewarmScope scope(*fcm, FontCacheManager::PreparationPolicy::Normal);
+    page.renderText(renderer, fontId, layout.marginLeft, layout.marginTop);
+    renderStatusBar();
+    scope.endScanAndPrewarm();
+  }
+
+  renderer.clearScreen(ReaderUtils::readerBackgroundColor());
+  const bool foregroundBlack = ReaderUtils::readerForegroundBlack();
+  const ReaderUtils::TextDitheringScope ditheringScope(renderer, SETTINGS.textAntiAliasing1Bit && foregroundBlack);
+  page.render(renderer, fontId, layout.marginLeft, layout.marginTop, foregroundBlack);
+  drawClippingHighlights(page, fontId, layout.marginTop, layout.marginLeft);
+  const int contentBottom = renderer.getScreenHeight() - layout.marginBottom;
+  drawPublisherPageMarkers(renderer, page, layout.marginTop, contentBottom, foregroundBlack);
+}
+
+void EpubReaderActivity::renderPreRenderPass(const ReaderViewportLayout& layout) {
+  if (!section || preRenderedPage.ready || activeFootnotePreview) {
+    return;
+  }
+  const int nextPage = section->currentPage + 1;
+  const int availablePages = static_cast<int>(section->pageCount);
+  if (nextPage >= availablePages) {
+    return;
+  }
+  if (ESP.getFreeHeap() < 30000) {
+    LOG_DBG("ERS", "PreRender skipped: low heap (free=%u)", ESP.getFreeHeap());
+    return;
+  }
+
+  auto p = section->loadPage(nextPage);
+  if (p && !p->hasImages()) {
+    const unsigned long start = millis();
+    const int renderFontId = activeSectionFontId != 0 ? activeSectionFontId : SETTINGS.getReaderFontId();
+    renderPageContentOnly(*p, renderFontId, layout);
+    const unsigned long duration = millis() - start;
+    preRenderedPage = {true, currentSpineIndex, nextPage, duration, millis()};
+    LOG_DBG("ERS", "Pre-rendered page %d/%d in %lums", nextPage, section->pageCount - 1, duration);
+  }
+}
+
+bool EpubReaderActivity::renderBufferDisplayPass(const ReaderViewportLayout& layout) {
+  if (!section) {
+    return false;
+  }
+  auto p = section->loadPage(section->currentPage);
+  if (!p || p->hasImages()) {
+    return false;
+  }
+  const int renderFontId = activeSectionFontId != 0 ? activeSectionFontId : SETTINGS.getReaderFontId();
+  currentPageFootnotes = std::move(p->footnotes);
+#if CROSSINK_APP_CAP_TOUCH
+  buildFootnoteTouchTargets(*p, renderFontId, layout.marginTop, layout.marginLeft);
+#endif
+
+  renderStatusBar();
+
+  if (pendingBookmarkFeedback) {
+    const char* msg = tr(STR_BOOKMARK_ADDED);
+    switch (bookmarkFeedbackType) {
+      case BookmarkFeedbackType::Added:
+        msg = tr(STR_BOOKMARK_ADDED);
+        break;
+      case BookmarkFeedbackType::Removed:
+        msg = tr(STR_BOOKMARK_REMOVED);
+        break;
+      case BookmarkFeedbackType::LimitReached:
+        msg = tr(STR_BOOKMARK_LIMIT_REACHED);
+        break;
+    }
+    drawToastBuffer(renderer, msg);
+  }
+  if (pendingCompletedFeedback) {
+    const char* msg = completedFeedbackIsFinished ? tr(STR_MARKED_FINISHED) : tr(STR_MARKED_UNFINISHED);
+    drawToastBuffer(renderer, msg);
+  }
+  if (pendingTiltPageTurnFeedback) {
+    const char* msg = homeButtonInReaderFeedback
+                          ? (tiltPageTurnFeedbackEnabled ? tr(STR_HOME_BUTTON_ENABLED) : tr(STR_HOME_BUTTON_DISABLED))
+                          : (tiltPageTurnFeedbackEnabled ? tr(STR_TILT_TO_TURN_ON) : tr(STR_TILT_TO_TURN_OFF));
+    drawToastBuffer(renderer, msg);
+  }
+  if (pendingSafeModeToast) {
+    drawRenderModeToastBuffer(tr(STR_SAFE_MODE));
+  } else if (pendingRenderModeToast) {
+    drawRenderModeToastBuffer(labelForRenderModeToast(normalizeRenderMode(renderModeToastMode)));
+  }
+
+  const bool foregroundBlack = ReaderUtils::readerForegroundBlack();
+  const bool needsTextGrayscale = SETTINGS.textAntiAliasing && foregroundBlack;
+
+  if (needsTextGrayscale) {
+    ensureGrayscaleStripScratch();
+    const auto displayBase = [](void* ctx) {
+      auto* self = static_cast<EpubReaderActivity*>(ctx);
+      if (self->pagesUntilFullRefresh <= 1) {
+        self->renderer.displayBuffer(self->pagesUntilFullRefresh < 0 ? manualScreenRefreshMode()
+                                                                     : HalDisplay::HALF_REFRESH);
+        self->renderer.preconditionGrayscale();
+        self->pagesUntilFullRefresh = SETTINGS.getRefreshFrequency();
+      } else {
+        self->renderer.displayGrayscaleBase(HalDisplay::FAST_REFRESH);
+        self->pagesUntilFullRefresh--;
+      }
+    };
+    if (!EpubGrayscale::runPrerenderedGrayscalePass(renderer, *p, renderFontId, layout.marginLeft, layout.marginTop,
+                                                   foregroundBlack, needsTextGrayscale, /*needsImageGrayscale=*/false,
+                                                   grayscaleStripScratch.get(), grayscaleStripScratchSize,
+                                                   displayBase, this)) {
+      displayBase(this);
+    }
+  } else {
+    ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh);
+  }
+
+  lastRenderCompleteMs = millis();
+  pageShownAtMs = millis();
+
+  const int totalPages = section->estimatedTotalPages();
+  if (progressSaveRequiredAfterRelayout || currentSpineIndex != lastSavedSpineIndex ||
+      section->currentPage != lastSavedPage || totalPages != lastSavedPageCount) {
+    if (!queueProgressSave(currentSpineIndex, section->currentPage, totalPages, progressSaveRequiredAfterRelayout)) {
+      pendingSyncSaveError = true;
+    } else if (progressSaveRequiredAfterRelayout) {
+      progressSaveRequiredAfterRelayout = false;
+    }
+  }
+  queueCompletionPromptIfNeeded();
+
+  if (section->currentPage + 1 < section->pageCount) {
+    pendingPreRender = true;
+    requestUpdate();
+  }
+  return true;
+}
+
+void EpubReaderActivity::restoreCurrentPageToBufferIfPreRendered() {
+  if (!preRenderedPage.ready || !section) {
+    return;
+  }
+  preRenderedPage.ready = false;
+  auto p = section->loadPage(section->currentPage);
+  if (!p) {
+    return;
+  }
+  const ReaderViewportLayout layout = computeReaderViewportLayout(
+      renderer, automaticPageTurnActive, activeFootnotePreview, statusBarVisible);
+  const int renderFontId = activeSectionFontId != 0 ? activeSectionFontId : SETTINGS.getReaderFontId();
+  renderPageContentOnly(*p, renderFontId, layout);
+  renderStatusBar();
+}
+
+void EpubReaderActivity::resetBackgroundBuild() {
+  if (backgroundSection_) {
+    backgroundSection_->abandonBuild();
+    backgroundSection_.reset();
+  }
+  backgroundBuildState_ = BackgroundBuildState::Probe;
+  backgroundBuildSpineIndex_ = -1;
+}
+
+void EpubReaderActivity::stepBackgroundSectionBuild() {
+  if (RenderLock::peek()) {
+    return;
+  }
+  if (!epub || !section || section->isBuilding() || activeFootnotePreview || automaticPageTurnActive) {
+    return;
+  }
+  if (backgroundBuildYieldForInput.load(std::memory_order_relaxed)) {
+    return;
+  }
+  if (buildViewportWidth == 0 || buildViewportHeight == 0) {
+    return;
+  }
+
+  const unsigned long now = millis();
+  const unsigned long lastActivityMs = std::max(lastPageTurnTime, pageShownAtMs);
+  if (now - lastActivityMs < BG_BUILD_QUIET_MS) {
+    return;
+  }
+
+  if (backgroundBuildBaseSpine_ != currentSpineIndex) {
+    resetBackgroundBuild();
+    backgroundBuildBaseSpine_ = currentSpineIndex;
+    backgroundBuildSpineIndex_ = currentSpineIndex + 1;
+    backgroundWindowPagesBuilt_ = 0;
+  }
+
+  const int spineCount = epub->getSpineItemsCount();
+  if (backgroundBuildSpineIndex_ < currentSpineIndex + 1 || backgroundBuildSpineIndex_ >= spineCount) {
+    return;
+  }
+
+  if (backgroundBuildState_ == BackgroundBuildState::Probe) {
+    const int currentTail = (section && section->pageCount > 0)
+                                ? std::max(0, static_cast<int>(section->pageCount) - 1 - section->currentPage)
+                                : 0;
+    if (currentTail + backgroundWindowPagesBuilt_ >= BG_BUILD_LOOKAHEAD_PAGES) {
+      return;
+    }
+  }
+
+  const int targetSpine = backgroundBuildSpineIndex_;
+  const int renderFontId = activeSectionFontId != 0 ? activeSectionFontId : SETTINGS.getReaderFontId();
+  const EpubRenderMode selectedRenderMode = normalizeRenderMode(SETTINGS.epubRenderMode);
+  const ReaderRenderSpec spec = readerRenderSpecForProfile(
+      renderFontId, buildViewportWidth, buildViewportHeight, buildProfileForRenderMode(selectedRenderMode));
+
+  switch (backgroundBuildState_) {
+    case BackgroundBuildState::Settled: {
+      const int next = targetSpine + 1;
+      resetBackgroundBuild();
+      backgroundBuildSpineIndex_ = next;
+      return;
+    }
+
+    case BackgroundBuildState::Probe: {
+      RenderLock lock(*this);
+      const char* cacheSuffix = sectionCacheSuffixForRenderMode(selectedRenderMode);
+      backgroundSection_ = makeUniqueNoThrow<Section>(epub, targetSpine, renderer, cacheSuffix);
+      if (!backgroundSection_) {
+        backgroundBuildState_ = BackgroundBuildState::Settled;
+        return;
+      }
+      if (backgroundSection_->loadSectionFile(spec) && !backgroundSection_->isPartial()) {
+        backgroundWindowPagesBuilt_ += backgroundSection_->pageCount;
+        backgroundSection_.reset();
+        backgroundBuildState_ = BackgroundBuildState::Settled;
+      } else {
+        backgroundBuildState_ = BackgroundBuildState::WaitHeap;
+      }
+      return;
+    }
+
+    case BackgroundBuildState::WaitHeap: {
+      if (!backgroundSectionBuildHasHeap()) {
+        return;
+      }
+      RenderLock lock(*this);
+      if (!backgroundSection_) {
+        const char* cacheSuffix = sectionCacheSuffixForRenderMode(selectedRenderMode);
+        backgroundSection_ = makeUniqueNoThrow<Section>(epub, targetSpine, renderer, cacheSuffix);
+        if (!backgroundSection_) {
+          backgroundBuildState_ = BackgroundBuildState::Settled;
+          return;
+        }
+      }
+      if (!backgroundSection_->startBuild(spec)) {
+        LOG_ERR("ERS", "Background pre-build start failed for spine %d", targetSpine);
+        backgroundSection_.reset();
+        backgroundBuildState_ = BackgroundBuildState::Settled;
+        return;
+      }
+      backgroundBuildState_ = BackgroundBuildState::Building;
+      return;
+    }
+
+    case BackgroundBuildState::Building: {
+      if (backgroundBuildYieldForInput.load(std::memory_order_relaxed)) {
+        return;
+      }
+      if (!backgroundSectionBuildHasHeap()) {
+        return;
+      }
+      RenderLock lock(*this);
+      if (!backgroundSection_ || !backgroundSection_->isBuilding()) {
+        backgroundBuildState_ = BackgroundBuildState::Settled;
+        return;
+      }
+      if (!backgroundSection_->buildSomeMore(BACKGROUND_BUILD_PAGES_PER_TICK)) {
+        LOG_ERR("ERS", "Background pre-build slice failed for spine %d", targetSpine);
+        backgroundSection_->abandonBuild();
+        backgroundSection_.reset();
+        backgroundBuildState_ = BackgroundBuildState::Settled;
+        return;
+      }
+      if (backgroundSection_->isBuildComplete()) {
+        LOG_INF("ERS", "Background pre-build complete for spine %d (%u pages)",
+                targetSpine, backgroundSection_->pageCount);
+        backgroundWindowPagesBuilt_ += backgroundSection_->pageCount;
+        backgroundBuildState_ = BackgroundBuildState::Settled;
+      }
+      return;
+    }
+  }
+}
+
 bool EpubReaderActivity::drawCurrentPageToBuffer(const std::string& filePath, GfxRenderer& renderer) {
   auto epub = makeUniqueNoThrow<Epub>(filePath, "/.crosspoint");
   if (!epub) {
