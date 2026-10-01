@@ -48,11 +48,71 @@ uint32_t toLowerCyrillicImpl(const uint32_t cp) {
   return cp;
 }
 
+// Convert Greek uppercase letters (monotonic & polytonic) to lowercase
+uint32_t toLowerGreekImpl(const uint32_t cp) {
+  // Basic Greek capitals: Α (0x0391) to Ω (0x03A9) except unassigned 0x03A2
+  if (cp >= 0x0391 && cp <= 0x03A1) {
+    return cp + 0x20;
+  }
+  if (cp >= 0x03A3 && cp <= 0x03A9) {
+    return cp + 0x20;  // Note: Σ maps to σ (0x03C3)
+  }
+  switch (cp) {
+    case 0x0386: return 0x03AC;  // Ά -> ά
+    case 0x0388: return 0x03AD;  // Έ -> έ
+    case 0x0389: return 0x03AE;  // Ή -> ή
+    case 0x038A: return 0x03AF;  // Ί -> ί
+    case 0x038C: return 0x03CC;  // Ό -> ό
+    case 0x038E: return 0x03CD;  // Ύ -> ύ
+    case 0x038F: return 0x03CE;  // Ώ -> ώ
+    case 0x03AA: return 0x03CA;  // Ϊ -> ϊ
+    case 0x03AB: return 0x03CB;  // Ϋ -> ϋ
+    case 0x03FA: return 0x03FB;  // Ϻ -> ϻ
+    default: break;
+  }
+  if ((cp >= 0x0370 && cp <= 0x0373 && (cp % 2 == 0)) ||
+      (cp >= 0x0376 && cp <= 0x0377 && (cp % 2 == 0)) ||
+      (cp >= 0x03D8 && cp <= 0x03EE && (cp % 2 == 0))) {
+    return cp + 1;
+  }
+  if (cp == 0x037F) return 0x03F3;
+  if (cp == 0x03CF) return 0x03D7;
+  if (cp == 0x03F4) return 0x03B8;
+  if (cp == 0x03F7) return 0x03F8;
+  if (cp == 0x03F9) return 0x03F2;
+  if (cp >= 0x03FD && cp <= 0x03FF) return cp - 130;
+
+  // Polytonic Greek capitals (0x1F00..0x1FFF)
+  if ((cp >= 0x1F08 && cp <= 0x1F0F) || (cp >= 0x1F18 && cp <= 0x1F1D) ||
+      (cp >= 0x1F28 && cp <= 0x1F2F) || (cp >= 0x1F38 && cp <= 0x1F3F) ||
+      (cp >= 0x1F48 && cp <= 0x1F4D) || (cp >= 0x1F59 && cp <= 0x1F5F && (cp % 2 == 1)) ||
+      (cp >= 0x1F68 && cp <= 0x1F6F) || (cp >= 0x1F88 && cp <= 0x1F8F) ||
+      (cp >= 0x1F98 && cp <= 0x1F9F) || (cp >= 0x1FA8 && cp <= 0x1FAF) ||
+      (cp >= 0x1FB8 && cp <= 0x1FB9) || (cp >= 0x1FD8 && cp <= 0x1FD9) ||
+      (cp >= 0x1FE8 && cp <= 0x1FE9)) {
+    return cp - 8;
+  }
+  if (cp >= 0x1FBA && cp <= 0x1FBB) return cp - 0x4A;
+  if (cp == 0x1FBC) return 0x1FB3;
+  if (cp >= 0x1FC8 && cp <= 0x1FCB) return cp - 0x56;
+  if (cp == 0x1FCC) return 0x1FC3;
+  if (cp >= 0x1FDA && cp <= 0x1FDB) return cp - 0x64;
+  if (cp >= 0x1FEA && cp <= 0x1FEB) return cp - 0x70;
+  if (cp == 0x1FEC) return 0x1FE5;
+  if (cp >= 0x1FF8 && cp <= 0x1FF9) return cp - 0x80;
+  if (cp >= 0x1FFA && cp <= 0x1FFB) return cp - 0x7E;
+  if (cp == 0x1FFC) return 0x1FF3;
+
+  return cp;
+}
+
 }  // namespace
 
 uint32_t toLowerLatin(const uint32_t cp) { return toLowerLatinImpl(cp); }
 
 uint32_t toLowerCyrillic(const uint32_t cp) { return toLowerCyrillicImpl(cp); }
+
+uint32_t toLowerGreek(const uint32_t cp) { return toLowerGreekImpl(cp); }
 
 bool isLatinLetter(const uint32_t cp) {
   if ((cp >= 'A' && cp <= 'Z') || (cp >= 'a' && cp <= 'z')) {
@@ -82,7 +142,27 @@ bool isLatinLetter(const uint32_t cp) {
 
 bool isCyrillicLetter(const uint32_t cp) { return (cp >= 0x0400 && cp <= 0x052F); }
 
-bool isAlphabetic(const uint32_t cp) { return isLatinLetter(cp) || isCyrillicLetter(cp); }
+bool isGreekLetter(const uint32_t cp) {
+  if (cp >= 0x0370 && cp <= 0x03FF) {
+    if (cp == 0x0374 || cp == 0x0375 || cp == 0x037E || cp == 0x0384 || cp == 0x0385 || cp == 0x0387) {
+      return false;
+    }
+    return true;
+  }
+  if (cp >= 0x1F00 && cp <= 0x1FFF) {
+    if ((cp >= 0x1FBD && cp <= 0x1FC1) || (cp >= 0x1FCD && cp <= 0x1FCF) ||
+        (cp >= 0x1FDD && cp <= 0x1FDF) || (cp >= 0x1FED && cp <= 0x1FEF) ||
+        (cp >= 0x1FFD && cp <= 0x1FFE)) {
+      return false;
+    }
+    return true;
+  }
+  return false;
+}
+
+bool isAlphabetic(const uint32_t cp) {
+  return isLatinLetter(cp) || isCyrillicLetter(cp) || isGreekLetter(cp);
+}
 
 bool isPunctuation(const uint32_t cp) {
   switch (cp) {
