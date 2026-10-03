@@ -3,6 +3,7 @@
 #include <CrossPointSettings.h>
 #include <GfxRenderer.h>
 #include <HalClock.h>
+#include <HalPowerManager.h>
 #include <HalTiltSensor.h>
 #include <Logging.h>
 #include <Memory.h>
@@ -16,6 +17,13 @@
 #include "components/UITheme.h"
 
 namespace ReaderUtils {
+
+constexpr uint16_t LOW_BATTERY_PROGRESS_SAVE_PERCENT = 15;
+
+inline bool isLowBatteryForProgressSave() {
+  const uint16_t percent = powerManager.getBatteryPercentage();
+  return percent > 0 && percent <= LOW_BATTERY_PROGRESS_SAVE_PERCENT;
+}
 
 constexpr unsigned long SKIP_HOLD_MS = 700;
 constexpr unsigned long GO_HOME_MS = 1000;

@@ -55,3 +55,18 @@ TEST(ReaderProgressSaveDebouncer, PositionOnlyCallersKeepExistingBehavior) {
   EXPECT_TRUE(debouncer.hasPending());
   EXPECT_EQ(debouncer.lastObservedMetadata(), 0U);
 }
+
+TEST(ReaderProgressSaveDebouncer, LowBatteryTriggersImmediateSave) {
+  ReaderProgressSaveDebouncer debouncer;
+
+  // On first observation in low-battery mode, it should immediately trigger save
+  EXPECT_TRUE(debouncer.observe(1, /*isLowBattery=*/true));
+  debouncer.markPersisted(1);
+  EXPECT_FALSE(debouncer.hasPending());
+
+  // On every subsequent page turn with low battery, it should also immediately trigger save
+  EXPECT_TRUE(debouncer.observe(2, /*isLowBattery=*/true));
+  debouncer.markPersisted(2);
+  EXPECT_FALSE(debouncer.hasPending());
+}
+

@@ -9,7 +9,7 @@
 // of their persistence format and explicitly flush pending state on exit.
 class ReaderProgressSaveDebouncer {
   static constexpr uint8_t PAGE_CHANGE_INTERVAL = 10;
-  static constexpr unsigned long MAX_SAVE_INTERVAL_MS = 5UL * 60UL * 1000UL;
+  static constexpr unsigned long MAX_SAVE_INTERVAL_MS = 2UL * 60UL * 1000UL;
 
   uint32_t lastPositionKey_ = 0;
   uint32_t lastMetadataKey_ = 0;
@@ -19,9 +19,11 @@ class ReaderProgressSaveDebouncer {
   bool pending_ = false;
 
  public:
-  bool observe(const uint32_t positionKey) { return observe(positionKey, 0); }
+  bool observe(const uint32_t positionKey, const bool isLowBattery = false) {
+    return observe(positionKey, 0, isLowBattery);
+  }
 
-  bool observe(const uint32_t positionKey, const uint32_t metadataKey) {
+  bool observe(const uint32_t positionKey, const uint32_t metadataKey, const bool isLowBattery = false) {
     const unsigned long now = millis();
     if (!initialized_) {
       initialized_ = true;
@@ -30,7 +32,7 @@ class ReaderProgressSaveDebouncer {
       lastPersistedAtMs_ = now;
       pendingPageChanges_ = 1;
       pending_ = true;
-      return false;
+      return isLowBattery;
     }
 
     if (positionKey != lastPositionKey_) {
@@ -43,6 +45,10 @@ class ReaderProgressSaveDebouncer {
     if (metadataKey != lastMetadataKey_) {
       lastMetadataKey_ = metadataKey;
       pending_ = true;
+    }
+
+    if (isLowBattery && pending_) {
+      return true;
     }
 
     return pending_ &&

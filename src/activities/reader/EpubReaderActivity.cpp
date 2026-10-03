@@ -6672,7 +6672,8 @@ bool EpubReaderActivity::queueProgressSave(const int spineIndex, const int curre
     return true;
   }
   const uint32_t positionKey = (static_cast<uint32_t>(spineIndex) << 16) | static_cast<uint16_t>(currentPage);
-  if (!progressSaveDebouncer.observe(positionKey, static_cast<uint32_t>(pageCount)) && !forceSave) {
+  const bool isLowBattery = ReaderUtils::isLowBatteryForProgressSave();
+  if (!progressSaveDebouncer.observe(positionKey, static_cast<uint32_t>(pageCount), isLowBattery) && !forceSave) {
     return true;
   }
   return saveProgress(spineIndex, currentPage, pageCount);

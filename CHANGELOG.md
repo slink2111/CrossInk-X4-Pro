@@ -12,6 +12,7 @@
 - Clock display option in the bottom reader status bar, configurable via the Customize Status Bar settings menu.
 - Greek and polytonic Greek UTF-8 character support in the built-in Inter UI fonts for book titles, file listings, and menus.
 - "1bit Text Anti-Aliasing" toggle switch in reader settings menus, allowing selection between hardware 2-pass grayscale anti-aliasing, instantaneous 1-bit font edge dithering, or turning both off for pure black-and-white rendering.
+- Smart progress saving: Keeps reading place in memory and debounces writes to SD card every 2 minutes only if progress moved (flushing immediately on exit, sleep, power-down, and bookmarks), with an automatic fallback to write on every page turn during low battery ($\le 15\%$).
 
 ### Changed
 

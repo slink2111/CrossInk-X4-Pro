@@ -1340,7 +1340,8 @@ bool XtcReaderActivity::saveProgress(const uint32_t page) {
 }
 
 bool XtcReaderActivity::queueProgressSave(const uint32_t pageToRender) {
-  if (!progressSaveDebouncer.observe(pageToRender)) {
+  const bool isLowBattery = ReaderUtils::isLowBatteryForProgressSave();
+  if (!progressSaveDebouncer.observe(pageToRender, isLowBattery)) {
     return true;
   }
   return saveProgress(pageToRender);

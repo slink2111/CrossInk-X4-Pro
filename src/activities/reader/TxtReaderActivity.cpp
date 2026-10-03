@@ -918,7 +918,8 @@ bool TxtReaderActivity::saveProgress(const int page) {
 }
 
 bool TxtReaderActivity::queueProgressSave() {
-  if (!progressSaveDebouncer.observe(static_cast<uint32_t>(currentPage))) {
+  const bool isLowBattery = ReaderUtils::isLowBatteryForProgressSave();
+  if (!progressSaveDebouncer.observe(static_cast<uint32_t>(currentPage), isLowBattery)) {
     return true;
   }
   return saveProgress(currentPage);

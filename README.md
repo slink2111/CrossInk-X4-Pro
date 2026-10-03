@@ -2,10 +2,7 @@
 
 ### Supported Devices
 
-- Xteink X3
-- Xteink X4
 - Xteink X4 Pro
-- Seeed Studio Sticky
 
 ## What's different in this fork
 
@@ -54,7 +51,10 @@ My goal with this fork was to maintain the core Crosspoint firmware while integr
 - Removed the top clock bar in reader mode, reclaiming vertical screen space so text expands upward and fits more lines per page.
 - Added optional Clock display to the bottom reader status bar (configurable in Customize Status Bar settings).
 - Full Greek and polytonic Greek UTF-8 character support in the built-in Inter UI font for book titles, file listings, and menus.
-- To view a more detailed list for each version, visit the [releases](https://github.com/uxjulia/CrossInk/releases) page to read release notes.
+- Added 1-bit font edge dithering (Single-Refresh Anti-Aliased Page Turns) with dedicated menu toggles in reader and system settings, enabling smooth font edges in a single refresh without multi-pass flashing.
+- Smart progress saving: Keeps reading place in memory and persists to SD card every 2 minutes (or immediately on book close, sleep, power-off, and milestones), with automatic fallback to save-on-every-turn under low battery ($\le 15\%$).
+- Now we use ttf font files in the fonts folder in SD card.
+- The indexing of the next chapter happens in the background as reader aproaches the end of the current chapter
 
 ---
 
@@ -79,6 +79,11 @@ The UI uses [Inter](https://fonts.google.com/specimen/Inter) as the display font
 CrossInk includes 10 pt, 12 pt, 14 pt, and 16 pt built-in reader font sizes.
 
 See [SD Card Fonts](./docs/sd-card-fonts.md) for installing additional font families and size ranges.
+
+### 1-Bit Font Edge Dithering & Anti-Aliasing
+
+- **1-Bit Font Edge Dithering (Single-Refresh Anti-Aliased Page Turns)**: Uses spatial edge dithering to produce smooth, anti-aliased font edges in a single instantaneous 1-bit refresh pass without multi-stage grayscale flashes or lag.
+- **Configurable in Menus**: Dedicated toggles in the Reader Menu and Main System Settings allow choosing between hardware 2-pass grayscale anti-aliasing, 1-bit edge dithering, or turning anti-aliasing off for pure high-contrast black-and-white rendering.
 
 ---
 
